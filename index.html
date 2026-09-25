@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Packet Loss Intelligence Dashboard</title>
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/dashboard.css">
+<link rel="stylesheet" href="assets/css/leaflet.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <div class="brand">
+      <div class="brand__eyebrow">
+        <i class="fa-solid fa-circle-nodes"></i>
+        <span>REPORTING</span>
+      </div>
+      <div class="brand__logo">
+        <img src="assets/images/logo1.png" alt="NPM" class="brand__logo-img">
+      </div>
+    </div>
+    <div class="topbar__title">
+      <h1><i class="fa-solid fa-satellite-dish"></i> Packet Loss <span>Intelligence</span></h1>
+      <p>Analyse réseau avancée • Seuil critique <strong>0.1%</strong></p>
+    </div>
+    <div class="topbar__status" id="apiStatusWrap">
+      <span class="status-dot"></span>
+      <span class="status-text" id="apiStatus">Prêt</span>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <section class="panel panel--form">
+    <header class="panel__head">
+      <div class="panel__head-left">
+        <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-sliders"></i></div>
+        <div>
+          <h2 class="panel__title">Configuration de l'analyse</h2>
+          <p class="panel__subtitle">Définissez le périmètre : sites, période et vendor.</p>
+        </div>
+      </div>
+      <span class="pill pill--warning"><i class="fa-solid fa-gauge-high"></i> Seuil 0.1%</span>
+    </header>
+
+    <div class="form-row form-row--imports">
+      <div class="field field--file">
+        <label for="sitesFile" class="field__label"><i class="fa-solid fa-file-lines"></i> Fichier TXT</label>
+        <div class="file-input"><input id="sitesFile" type="file" accept=".txt,.csv"></div>
+        <small id="sitesFileName" class="field__hint">Aucun fichier sélectionné</small>
+      </div>
+      <div class="field field--grow">
+        <label for="sitesPaste" class="field__label"><i class="fa-solid fa-keyboard"></i> Sites à analyser</label>
+        <textarea id="sitesPaste" rows="3" placeholder="AC078 AC155 ET010 IM024"></textarea>
+        <small class="field__hint">Séparez par espace, virgule, ; ou retour à la ligne</small>
+      </div>
+      <div class="field field--file">
+        <label for="excelFile" class="field__label"><i class="fa-solid fa-file-excel"></i> Fichier Excel</label>
+        <div class="file-input"><input id="excelFile" type="file" accept=".xlsx,.xls"></div>
+        <small class="field__hint">Colonne "Site" du 1er onglet</small>
+      </div>
+    </div>
+
+    <div class="form-row form-row--filters">
+      <div class="field">
+        <label for="periodPreset" class="field__label"><i class="fa-regular fa-calendar"></i> Période</label>
+        <select id="periodPreset">
+          <option value="7">7 derniers jours</option>
+          <option value="14">14 derniers jours</option>
+          <option value="30">30 derniers jours</option>
+          <option value="CUSTOM">Personnalisée</option>
+        </select>
+      </div>
+      <div class="field"><label for="startDate" class="field__label">Début</label><input type="date" id="startDate"></div>
+      <div class="field"><label for="endDate" class="field__label">Fin</label><input type="date" id="endDate"></div>
+      <div class="field">
+        <label for="hourRange" class="field__label"><i class="fa-regular fa-clock"></i> Plage horaire</label>
+        <select id="hourRange">
+          <option value="all">Toute la journée</option>
+          <option value="00-06">Nuit (00h - 06h)</option>
+          <option value="06-12">Matin (06h - 12h)</option>
+          <option value="12-18">Après-midi (12h - 18h)</option>
+          <option value="18-24">Soir (18h - 24h)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="vendor" class="field__label"><i class="fa-solid fa-tower-broadcast"></i> Vendor</label>
+        <select id="vendor">
+          <option value="ALL">Tous</option>
+          <option value="ERICSSON">Ericsson</option>
+          <option value="HUAWEI">Huawei</option>
+        </select>
+      </div>
+      <div class="field field--actions">
+        <button id="analyzeBtn" class="btn btn--primary"><i class="fa-solid fa-bolt"></i><span>Analyser</span></button>
+        <button id="resetBtn" class="btn btn--ghost" title="Réinitialiser"><i class="fa-solid fa-rotate-left"></i></button>
+      </div>
+    </div>
+
+    <div id="requestInfo" class="alert alert--info hidden"></div>
+    <div id="message" class="alert alert--warning hidden"></div>
+  </section>
+
+  <section id="dashboard" class="hidden">
+
+    <div class="export-bar" id="exportBar">
+      <div class="export-bar__left"><i class="fa-solid fa-file-export"></i><span>Exporter le rapport complet</span></div>
+      <div class="export-bar__actions">
+        <button id="exportPdfBtn" class="btn btn--primary btn--sm"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+        <button id="exportImgBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-image"></i> Image</button>
+      </div>
+    </div>
+
+    <div class="export-bar export-bar--degraded" id="degradedExportBar">
+      <div class="export-bar__left">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span>Rapport des sites dégradés</span>
+        <span class="badge-count" id="degradedCount">0</span>
+      </div>
+      <div class="export-bar__actions">
+        <button id="exportDegradedPdfBtn" class="btn btn--primary btn--sm"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+        <button id="exportDegradedImgBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-image"></i> Image</button>
+        <button id="exportDegradedXlsBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-file-excel"></i> Excel</button>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         KPI — 8 CARTES
+         Demandés / Avec données / Impactés / Sans données
+         Dégradés / Stables / Améliorés / Max PL
+         ============================================================ -->
+    <div class="kpi-grid kpi-grid--8">
+      <article class="kpi" data-color="blue" title="Nombre total de sites demandés">
+        <div class="kpi__icon"><i class="fa-solid fa-list-check"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Sites demandés</span>
+          <strong class="kpi__value" id="kSitesRequested">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="green" title="Sites pour lesquels des données ont été trouvées">
+        <div class="kpi__icon"><i class="fa-solid fa-database"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Sites avec données</span>
+          <strong class="kpi__value" id="kSitesData">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="orange" title="Sites dont la moyenne dépasse le seuil de 0.1%">
+        <div class="kpi__icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Sites impactés</span>
+          <strong class="kpi__value" id="kImpacted">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="red" title="Sites demandés sans aucune mesure">
+        <div class="kpi__icon"><i class="fa-solid fa-circle-xmark"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Sites sans données</span>
+          <strong class="kpi__value" id="kNoDataKpi">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="red" title="Sites dont la perte augmente (2ème moitié > 1ère moitié)">
+        <div class="kpi__icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Dégradés</span>
+          <strong class="kpi__value" id="kDegrading">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="violet" title="Sites dont la perte est restée stable">
+        <div class="kpi__icon"><i class="fa-solid fa-minus"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Stables</span>
+          <strong class="kpi__value" id="kStable">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="green" title="Sites dont la perte diminue (2ème moitié < 1ère moitié)">
+        <div class="kpi__icon"><i class="fa-solid fa-arrow-trend-down"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Améliorés</span>
+          <strong class="kpi__value" id="kImproving">0</strong>
+        </div>
+      </article>
+      <article class="kpi" data-color="blue" title="Valeur maximale de Packet Loss observée">
+        <div class="kpi__icon"><i class="fa-solid fa-chart-line"></i></div>
+        <div class="kpi__body">
+          <span class="kpi__label">Max Packet Loss</span>
+          <strong class="kpi__value" id="kMax">0.0000%</strong>
+        </div>
+      </article>
+    </div>
+
+    <div class="summary">
+      <div class="summary__item"><i class="fa-solid fa-ruler"></i><span>Mesures</span><strong id="kRows">0</strong></div>
+      <div class="summary__item"><i class="fa-solid fa-chart-line"></i><span>Moyenne globale</span><strong id="kAvg">0.0000%</strong></div>
+      <div class="summary__item"><i class="fa-solid fa-gauge-high"></i><span>Seuil</span><strong>0.1%</strong></div>
+      <div class="summary__item"><i class="fa-solid fa-tower-broadcast"></i><span>Vendor</span><strong id="summaryVendor">Tous</strong></div>
+      <div class="summary__item"><i class="fa-regular fa-clock"></i><span>Plage</span><strong id="summaryHourRange">Toute la journée</strong></div>
+      <div class="summary__item"><i class="fa-regular fa-calendar"></i><span>Période</span><strong id="summaryPeriod">-</strong></div>
+    </div>
+
+    <section id="noDataPanel" class="panel panel--no-data hidden">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--orange"><i class="fa-solid fa-circle-exclamation"></i></div>
+          <div>
+            <h2 class="panel__title">Sites sans données</h2>
+            <p class="panel__subtitle"><strong id="noDataCount">0</strong> site(s) demandé(s) sans mesure sur cette période.</p>
+          </div>
+        </div>
+      </header>
+      <div id="noDataList" class="no-data-list"></div>
+    </section>
+
+    <section class="panel">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-wave-square"></i></div>
+          <div>
+            <h2 class="panel__title">Évolution globale du Packet Loss</h2>
+            <p class="panel__subtitle">Moyenne horaire, tous sites confondus. Ligne rouge = seuil 0.1%.</p>
+          </div>
+        </div>
+      </header>
+      <div id="globalChart" class="chart chart--global"></div>
+    </section>
+
+    <section class="panel">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--red"><i class="fa-solid fa-ranking-star"></i></div>
+          <div>
+            <h2 class="panel__title">Worst Packet Loss Sites</h2>
+            <p class="panel__subtitle">Top 10 des sites les plus dégradés par moyenne décroissante.</p>
+          </div>
+        </div>
+      </header>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Rang</th><th>Site</th><th>Vendor</th><th>Lien</th>
+              <th class="num">Packet Loss</th><th class="num">Max</th>
+              <th class="num">Temps dégradé</th><th class="num">&gt; 0.1%</th><th>Statut</th>
+            </tr>
+          </thead>
+          <tbody id="worstTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel panel--map" id="mapPanel">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--green"><i class="fa-solid fa-map-location-dot"></i></div>
+          <div>
+            <h2 class="panel__title">Carte réseau et identification des HUBs</h2>
+            <p class="panel__subtitle">Cliquez sur un HUB pour voir uniquement ses sites et liens associés.</p>
+          </div>
+        </div>
+
+        <div class="map-toolbar">
+          <div class="map-toolbar__filters">
+            <div class="mini-field">
+              <i class="fa-solid fa-tower-broadcast"></i>
+              <select id="mapVendorFilter">
+                <option value="ALL">Tous vendors</option>
+                <option value="HUAWEI">Huawei</option>
+                <option value="ERICSSON">Ericsson</option>
+              </select>
+            </div>
+            <div class="mini-field">
+              <i class="fa-solid fa-diagram-project"></i>
+              <select id="mapLinkFilter">
+                <option value="ALL">Tous liens</option>
+                <option value="FO">FO</option>
+                <option value="FH">FH</option>
+                <option value="TR">Transmission</option>
+                <option value="TOPO">WDM</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="map-legend">
+            <span><i class="dot dot--huawei"></i>Huawei</span>
+            <span><i class="dot dot--ericsson"></i>Ericsson</span>
+            <span><i class="line line--fo"></i>FO</span>
+            <span><i class="line line--fh"></i>FH</span>
+            <span><i class="line line--tr"></i>Transmission</span>
+            <span><i class="line line--topo"></i>WDM</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="map-toggles">
+        <label class="chk"><input type="checkbox" id="toggleSites" checked><span>Sites</span></label>
+        <label class="chk"><input type="checkbox" id="toggleFO" checked><span>FO</span></label>
+        <label class="chk"><input type="checkbox" id="toggleFH" checked><span>FH</span></label>
+        <label class="chk"><input type="checkbox" id="toggleTR" checked><span>Transmission</span></label>
+        <label class="chk"><input type="checkbox" id="toggleTOPO" checked><span>WDM</span></label>
+        <label class="chk chk--hub"><input type="checkbox" id="toggleHubs"><span>Vue HUB uniquement</span></label>
+      </div>
+
+      <!-- Bouton flottant : réafficher le panneau HUB quand replié -->
+      <button id="hubPanelToggleFloat" class="hub-panel-toggle-float hidden" title="Afficher les HUBs">
+        <i class="fa-solid fa-hubspot"></i><span>HUBs</span>
+      </button>
+
+      <!-- NOUVEAU : bouton flottant pour réinitialiser la vue carte -->
+      <button id="mapResetFloatBtn" class="map-reset-float hidden" title="Afficher tous les sites">
+        <i class="fa-solid fa-rotate-left"></i>
+        <span>Afficher tous les sites</span>
+      </button>
+
+      <div class="map-layout" id="mapLayout">
+        <div id="map" class="map"></div>
+
+        <aside class="hub-panel" id="hubPanel">
+          <header class="hub-panel__head">
+            <div class="hub-panel__title">
+              <i class="fa-solid fa-hubspot"></i>
+              <div>
+                <h3>HUBs identifiés</h3>
+                <p>Top 8 sites centraux du réseau</p>
+              </div>
+            </div>
+            <button id="hubPanelToggle" class="hub-panel__toggle" title="Replier / déplier">
+              <i class="fa-solid fa-chevron-right"></i>
+            </button>
+          </header>
+          <div class="hub-panel__body" id="hubPanelBody">
+            <div class="hub-list" id="hubList">
+              <div class="hub-empty">
+                <i class="fa-solid fa-circle-info"></i>
+                <p>Lancez une analyse pour identifier les HUBs.</p>
+              </div>
+            </div>
+            <div class="hub-details hidden" id="hubDetails"></div>
+          </div>
+        </aside>
+      </div>
+
+      <div id="mapInfo" class="map-info">Chargement du référentiel...</div>
+    </section>
+
+    <section class="panel">
+      <header class="panel__head panel__head--toolbar">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-chart-simple"></i></div>
+          <div>
+            <h2 class="panel__title">Analyse détaillée par site</h2>
+            <p class="panel__subtitle">Un graphique par site avec sa tendance et ses statistiques.</p>
+          </div>
+        </div>
+        <div class="site-filters">
+          <div class="search-input">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input id="siteSearch" type="search" placeholder="Rechercher un site...">
+          </div>
+          <select id="siteSort" class="select-sm">
+            <option value="name_asc">Site A-Z</option>
+            <option value="worst_degraded">Pires dégradés</option>
+            <option value="best_degraded">Meilleurs dégradés</option>
+            <option value="highest_avg">Perte max</option>
+            <option value="threshold_exceeded">Seuil dépassé</option>
+          </select>
+          <select id="trendFilter" class="select-sm">
+            <option value="all">Toutes tendances</option>
+            <option value="improving">Amélioration</option>
+            <option value="stable">Stable</option>
+            <option value="degrading">Dégradation</option>
+          </select>
+        </div>
+      </header>
+      <div id="siteGrid" class="site-grid"></div>
+    </section>
+  </section>
+
+  <section id="emptyState" class="empty">
+    <div class="empty__icon"><i class="fa-solid fa-satellite-dish"></i></div>
+    <h2 class="empty__title">Aucune analyse en cours</h2>
+    <p class="empty__text">Importez ou collez vos sites, puis cliquez sur <strong>Analyser</strong> pour démarrer.</p>
+  </section>
+
+</main>
+
+<script src="assets/js/purify.min.js"></script>
+<script src="assets/js/xlsx.full.min.js"></script>
+<script src="assets/js/exceljs.min.js"></script>
+<script src="assets/js/plotly.min.js"></script>
+<script src="assets/js/leaflet.js"></script>
+<script src="assets/js/html2canvas.min.js"></script>
+<script src="assets/js/jspdf.umd.min.js"></script>
+<script src="assets/js/dashboard.js"></script>
+</body>
+</html>
