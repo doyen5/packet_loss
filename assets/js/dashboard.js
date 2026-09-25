@@ -1,19 +1,30 @@
 /* =========================================================
-   PACKET LOSS DASHBOARD — JS v12
+   PACKET LOSS DASHBOARD — JS v13
    ---------------------------------------------------------
-   Correctif v12 :
-   - Affichage de TOUTES les dates sur l'axe X des graphiques.
-     Avant : Plotly choisissait automatiquement 4-6 graduations
-     max, ce qui masquait certaines dates.
-     Maintenant : une graduation par jour (dtick: 'D1'),
-     avec rotation automatique des libellés (-45°) si la
-     période dépasse 12 jours pour éviter le chevauchement.
+   Nouveautés v13 :
+   - NOUVEAU : sélecteur "Vue jour / Vue brute" pour les
+     graphiques par site.
+       * Vue jour  : une graduation par jour, axe Y fixé
+                     pour inclure le seuil 0.1%, courbe
+                     lissée. (comportement actuel)
+       * Vue brute : toutes les mesures horaires, axe Y
+                     auto-échelonné, lignes droites.
+                     (comportement identique à l'export Excel)
+   - NOUVEAU : l'export Excel utilise désormais la même
+     configuration que la "Vue jour" :
+       * dtick = 'D1' (une graduation par jour)
+       * Y fixé pour inclure la ligne seuil 0.1%
+       * courbe lissée
+       * annotation "Seuil 0.1%"
+
+   Correctifs v12 conservés :
+   - Affichage de toutes les dates sur l'axe X (dtick D1)
+   - Rotation auto des libellés si > 12 jours
 
    Correctifs v11 conservés :
    - Clic sur n'importe quel marqueur → mode HUB actif
    - selectSite() générique
    - renderHubDetails() extrait
-   - Alias selectHub() rétro-compatible
 
    Correctifs v10 conservés :
    - safeOn() défensif
@@ -67,6 +78,11 @@ let lastResult        = null;
 let lastFilteredRows  = [];
 let lastSiteStats     = [];
 
+/* NOUVEAU v13 : mode d'affichage des graphiques par site.
+   - 'day' : vue synthétique (1 point par jour, seuil visible)
+   - 'raw' : vue brute horaire (identique à l'export Excel) */
+let chartViewMode = "day";
+
 const siteTrends = {};
 
 const mapFilterState = {
@@ -94,9 +110,6 @@ const $ = id => document.getElementById(id);
 
 /* =========================================================
    HELPER DÉFENSIF
-   ---------------------------------------------------------
-   safeOn(id, event, handler) : attache un écouteur
-   UNIQUEMENT si l'élément existe.
    ========================================================= */
 function safeOn(id, event, handler){
   const el = document.getElementById(id);
@@ -126,7 +139,9 @@ function checkRequiredElements(){
     "siteSearch", "siteSort", "trendFilter", "siteGrid",
     "exportBar", "exportPdfBtn", "exportImgBtn",
     "degradedExportBar", "degradedCount",
-    "exportDegradedPdfBtn", "exportDegradedImgBtn", "exportDegradedXlsBtn"
+    "exportDegradedPdfBtn", "exportDegradedImgBtn", "exportDegradedXlsBtn",
+    /* NOUVEAU v13 */
+    "viewToggle"
   ];
   const optional = ["clearHubFilterBtn","mapResetFloatBtn","hubPanelBody"];
   const missingRequired = required.filter(id => !document.getElementById(id));
@@ -264,35 +279,24 @@ function animateCounter(el, finalText){
 }
 
 /* =========================================================
-   NOUVEAU v12 — Calcul du nombre de jours uniques
-   ---------------------------------------------------------
-   Sert à décider de la rotation des libellés sur l'axe X :
-   - ≤ 12 jours → libellés horizontaux (0°)
-   -  > 12 jours → libellés inclinés (-45°)
+   Calcul du nombre de jours uniques
    ========================================================= */
 function countUniqueDays(rows){
   if(!rows || !rows.length) return 0;
   const days = new Set();
   rows.forEach(r => {
     const dt = makeDateTime(r);
-    if(dt) days.add(dt.slice(0, 10)); // YYYY-MM-DD
+    if(dt) days.add(dt.slice(0, 10));
   });
   return days.size;
 }
 
 /* =========================================================
-   NOUVEAU v12 — Génère la config X-axis adaptée
-   ---------------------------------------------------------
-   Retourne un objet à passer à Plotly pour l'axe X, avec :
-   - dtick: 'D1'  → une graduation par jour, quoi qu'il arrive
-   - tickformat    → %d/%m
-   - tickangle     → 0 ou -45 selon le nombre de jours
+   Config X-axis "Vue jour" : une graduation par jour
    ========================================================= */
-function buildXAxisConfig(rows, options = {}){
+function buildXAxisConfigDay(rows, options = {}){
   const nDays = countUniqueDays(rows);
-  // Rotation seulement si beaucoup de jours
   const tickangle = nDays > 12 ? -45 : 0;
-  // Marge basse adaptée à l'inclinaison
   const extraBottom = nDays > 12 ? 20 : 0;
 
   return {
@@ -302,12 +306,9 @@ function buildXAxisConfig(rows, options = {}){
         ? options.title
         : { text: "Date", font: { size: 11, color: "#64748b" } },
       tickformat: "%d/%m",
-      /* Forcer une graduation par jour */
       dtick: "D1",
-      /* Mode "linear" implicite pour dates : chaque jour = 1 tick */
       tickmode: "linear",
       tickangle,
-      /* Plus de nticks arbitraire : on laisse dtick piloter */
       gridcolor: "#f8fafc",
       linecolor: "#e2e8f0",
       tickfont: { size: options.tickSize || 9.5, color: "#64748b" },
@@ -315,6 +316,56 @@ function buildXAxisConfig(rows, options = {}){
     },
     extraBottom
   };
+}
+
+/* =========================================================
+   NOUVEAU v13 — Config X-axis "Vue brute"
+   ---------------------------------------------------------
+   Affiche toutes les mesures horaires avec un format
+   "JJ/MM HH:MM" et une rotation automatique.
+   ========================================================= */
+function buildXAxisConfigRaw(rows, options = {}){
+  const nPoints = (rows || []).length;
+  /* Rotation systématique : beaucoup de points horaires */
+  const tickangle = nPoints > 20 ? -45 : -30;
+  const extraBottom = nPoints > 20 ? 30 : 20;
+
+  return {
+    axis: {
+      type: "date",
+      title: options.title !== undefined
+        ? options.title
+        : { text: "Date et heure", font: { size: 11, color: "#64748b" } },
+      tickformat: "%d/%m %H:%M",
+      /* Auto-échelonnage : Plotly choisit, mais on limite
+         le nombre max de ticks pour éviter le chevauchement. */
+      nticks: Math.min(nPoints, 20),
+      tickangle,
+      gridcolor: "#f8fafc",
+      linecolor: "#e2e8f0",
+      tickfont: { size: options.tickSize || 9.5, color: "#64748b" },
+      automargin: true
+    },
+    extraBottom
+  };
+}
+
+/* =========================================================
+   NOUVEAU v13 — Calcul de la plage Y pour "Vue jour"
+   ---------------------------------------------------------
+   On force l'axe Y à inclure la ligne du seuil 0.1%.
+   Cela rend les petits pics visuellement corrects par
+   rapport au seuil métier.
+   ========================================================= */
+function computeFixedYRange(rows){
+  const values = (rows || []).map(r => Number(r.packet_loss) || 0);
+  const maxVal = values.length ? Math.max(...values) : 0;
+
+  /* On prend au minimum le seuil * 1.25 pour que la ligne
+     du seuil ne soit jamais collée au bord haut. */
+  const upper = Math.max(THRESHOLD * 1.25, maxVal * 1.2, 0.05);
+
+  return [0, upper];
 }
 
 /* =========================================================
@@ -437,11 +488,6 @@ function buildSiteLinkIndex(){
       }
     }
   }
-  const nFO   = Object.values(siteLinkIndex).filter(t=>t.FO).length;
-  const nFH   = Object.values(siteLinkIndex).filter(t=>t.FH).length;
-  const nTR   = Object.values(siteLinkIndex).filter(t=>t.TR).length;
-  const nTOPO = Object.values(siteLinkIndex).filter(t=>t.TOPO).length;
-  console.log(`[Index] FO:${nFO} • FH:${nFH} • TR:${nTR} • TOPO:${nTOPO}`);
 }
 
 function getSiteLinkInfo(siteId){
@@ -724,7 +770,7 @@ function renderNoDataSites(result){
 }
 
 /* =========================================================
-   GRAPHE GLOBAL — v12 : toutes les dates sur l'axe X
+   GRAPHE GLOBAL — conserve la "Vue jour" (lisible)
    ========================================================= */
 function renderGlobalChart(rows){
   const container = $("globalChart");
@@ -750,8 +796,7 @@ function renderGlobalChart(rows){
     return;
   }
 
-  /* ---- v12 : calcul de la config X-axis (toutes les dates) ---- */
-  const xConf = buildXAxisConfig(rows, {
+  const xConf = buildXAxisConfigDay(rows, {
     title: { text:"Date", font:{size:11,color:"#64748b"} },
     tickSize: 10.5
   });
@@ -1398,8 +1443,6 @@ function selectSite(siteCode){
       }
     }
   }
-
-  console.log(`[HUB] Site sélectionné : ${site} • ${neighbors.length} voisin(s)`);
 }
 
 /* =========================================================
@@ -1532,6 +1575,36 @@ safeOn("toggleHubs", "change", e=>{
     renderMap(lastSiteStats);
   }
 });
+
+/* =========================================================
+   NOUVEAU v13 — ÉCOUTEUR DU SÉLECTEUR DE VUE
+   ---------------------------------------------------------
+   Bascule entre 'day' et 'raw'. Si une analyse existe déjà,
+   on redessine immédiatement les graphiques.
+   ========================================================= */
+function bindViewToggle(){
+  const toggle = $("viewToggle");
+  if(!toggle) return;
+  toggle.querySelectorAll(".view-toggle__btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const view = btn.dataset.view;
+      if(view === chartViewMode) return;
+
+      /* Met à jour l'état visuel des boutons */
+      toggle.querySelectorAll(".view-toggle__btn").forEach(b => {
+        b.classList.toggle("is-active", b.dataset.view === view);
+      });
+
+      chartViewMode = view;
+      console.log(`[Vue] Mode graphique : ${chartViewMode}`);
+
+      /* Redessine les graphiques par site si une analyse existe */
+      if(lastResult && lastSiteStats.length){
+        renderSiteGrid(lastSiteStats, lastFilteredRows);
+      }
+    });
+  });
+}
 
 /* =========================================================
    TENDANCE PAR SITE
@@ -1701,13 +1774,28 @@ function renderSiteGrid(siteStats,rows){
 }
 
 /* =========================================================
-   MINI-GRAPHIQUE PAR SITE — v12 : toutes les dates
+   MINI-GRAPHIQUE PAR SITE — dispatcher
    ---------------------------------------------------------
-   Avant : nticks:6 → seulement 4-6 dates affichées.
-   Après : dtick:'D1' → une graduation par jour.
-   Rotation automatique si > 12 jours.
+   NOUVEAU v13 : aiguille vers la fonction de rendu adaptée
+   au mode courant ('day' ou 'raw').
    ========================================================= */
 function renderSiteChart(id, rows, name){
+  if(chartViewMode === "raw"){
+    renderSiteChartRaw(id, rows, name);
+  } else {
+    renderSiteChartDay(id, rows, name);
+  }
+}
+
+/* =========================================================
+   MINI-GRAPHIQUE — VUE JOUR (comportement actuel amélioré)
+   ---------------------------------------------------------
+   - Une graduation par jour (dtick D1)
+   - Axe Y FIXÉ pour inclure le seuil 0.1%
+   - Courbe lissée
+   - Ligne de seuil visible
+   ========================================================= */
+function renderSiteChartDay(id, rows, name){
   const el = document.getElementById(id);
   if(!el) return;
   const sorted = [...rows].sort((a,b)=>{
@@ -1725,8 +1813,8 @@ function renderSiteChart(id, rows, name){
     font:{size:9,color:"#ef4444"}
   }];
 
-  /* ---- v12 : toutes les dates sur l'axe X ---- */
-  const xConf = buildXAxisConfig(rows, { tickSize: 9.5 });
+  const xConf = buildXAxisConfigDay(rows, { tickSize: 9.5 });
+  const yRange = computeFixedYRange(rows);
 
   Plotly.newPlot(id,[
     {
@@ -1742,7 +1830,6 @@ function renderSiteChart(id, rows, name){
       hovertemplate:"Seuil : 0.1%<extra></extra>"
     }
   ],{
-    /* Marge basse : 70 de base + 20 si les libellés sont inclinés */
     margin:{ l:38, r:8, t:12, b: 70 + xConf.extraBottom },
     paper_bgcolor:"#fff", plot_bgcolor:"#fff",
     font:{family:"Inter, Segoe UI, Arial",size:10,color:"#64748b"},
@@ -1752,7 +1839,7 @@ function renderSiteChart(id, rows, name){
     xaxis: xConf.axis,
     yaxis:{
       title:{text:"%",font:{size:10,color:"#94a3b8"}},
-      rangemode:"tozero",
+      range: yRange,
       gridcolor:"#f8fafc", linecolor:"#e2e8f0", tickfont:{size:9.5},
       automargin: true
     }
@@ -1767,9 +1854,97 @@ function renderSiteChart(id, rows, name){
     ],
     toImageButtonOptions: {
       format: 'png',
-      filename: `packet-loss-${name}`,
+      filename: `packet-loss-${name}-jour`,
       height: 600,
       width: 1200,
+      scale: 2
+    }
+  });
+}
+
+/* =========================================================
+   MINI-GRAPHIQUE — VUE BRUTE (style Excel)
+   ---------------------------------------------------------
+   - Toutes les mesures horaires
+   - Axe Y AUTO-ÉCHELONNÉ (mise en évidence des pics)
+   - Lignes droites (pas de spline)
+   - Ligne de seuil visible UNIQUEMENT si le pic dépasse
+     le seuil, sinon masquée pour ne pas fausser l'échelle
+   ========================================================= */
+function renderSiteChartRaw(id, rows, name){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const sorted = [...rows].sort((a,b)=>{
+    const da = makeDateTime(a)||"", db = makeDateTime(b)||"";
+    return da.localeCompare(db);
+  });
+
+  const x = sorted.map(r=>makeDateTime(r));
+  const y = sorted.map(r=>Number(r.packet_loss));
+
+  const xConf = buildXAxisConfigRaw(rows, { tickSize: 8.5 });
+
+  /* Auto-échelle : on laisse Plotly choisir, mais on
+     ajoute une petite marge au-dessus du max. */
+  const maxVal = y.length ? Math.max(...y) : 0;
+  const yRange = [0, maxVal * 1.15 || 0.01];
+
+  /* On n'affiche la ligne du seuil que si elle est
+     visible dans l'échelle actuelle. */
+  const showThresholdLine = maxVal >= THRESHOLD * 0.9;
+
+  const traces = [
+    {
+      x,y,type:"scatter",mode:"lines+markers",name,
+      line:{color:"#2563eb",width:1.8,shape:"linear"},
+      marker:{color:"#2563eb",size:3},
+      hovertemplate:"%{x|%d/%m %H:%M}<br>Packet Loss : <b>%{y:.6f}%</b><extra></extra>"
+    }
+  ];
+
+  if(showThresholdLine){
+    traces.push({
+      x, y: x.map(()=>THRESHOLD),
+      type:"scatter", mode:"lines", name:"Seuil",
+      line:{dash:"dash",color:"#ef4444",width:1.2},
+      hovertemplate:"Seuil : 0.1%<extra></extra>"
+    });
+  }
+
+  /* Ajustement de l'échelle Y pour inclure le seuil si
+     on l'affiche (pour éviter qu'il soit hors cadre). */
+  const finalYRange = showThresholdLine
+    ? [0, Math.max(maxVal * 1.15, THRESHOLD * 1.15)]
+    : yRange;
+
+  Plotly.newPlot(id, traces, {
+    margin:{ l:44, r:8, t:12, b: 60 + xConf.extraBottom },
+    paper_bgcolor:"#fff", plot_bgcolor:"#fff",
+    font:{family:"Inter, Segoe UI, Arial",size:10,color:"#64748b"},
+    hovermode:"x unified",
+    hoverlabel:{bgcolor:"#0f172a",bordercolor:"#0f172a",font:{color:"#fff",size:11}},
+    showlegend:false,
+    xaxis: xConf.axis,
+    yaxis:{
+      title:{text:"%",font:{size:10,color:"#94a3b8"}},
+      range: finalYRange,
+      gridcolor:"#f8fafc", linecolor:"#e2e8f0", tickfont:{size:9.5},
+      automargin: true
+    }
+  },{
+    responsive: true,
+    displaylogo: false,
+    displayModeBar: true,
+    modeBarButtonsToRemove: [
+      'lasso2d','select2d',
+      'hoverClosestCartesian','hoverCompareCartesian',
+      'toggleSpikelines','zoom2d','pan2d'
+    ],
+    toImageButtonOptions: {
+      format: 'png',
+      filename: `packet-loss-${name}-brut`,
+      height: 600,
+      width: 1400,
       scale: 2
     }
   });
@@ -2078,7 +2253,7 @@ function buildDegradedReportDOM(degradedSites){
 }
 
 /* =========================================================
-   GRAPHIQUE DU RAPPORT DÉGRADÉ — v12 : toutes les dates
+   GRAPHIQUE DU RAPPORT DÉGRADÉ — utilise la Vue jour
    ========================================================= */
 function renderReportChart(id, rows){
   const el = document.getElementById(id);
@@ -2090,8 +2265,8 @@ function renderReportChart(id, rows){
   const x = sorted.map(r => makeDateTime(r));
   const y = sorted.map(r => Number(r.packet_loss));
 
-  /* ---- v12 : toutes les dates sur l'axe X ---- */
-  const xConf = buildXAxisConfig(rows, { tickSize: 9.5 });
+  const xConf = buildXAxisConfigDay(rows, { tickSize: 9.5 });
+  const yRange = computeFixedYRange(rows);
 
   Plotly.newPlot(id, [
     {
@@ -2114,7 +2289,8 @@ function renderReportChart(id, rows){
     hovermode:"x unified", showlegend:false,
     xaxis: xConf.axis,
     yaxis:{
-      rangemode:"tozero", gridcolor:"#f8fafc", linecolor:"#e2e8f0",
+      range: yRange,
+      gridcolor:"#f8fafc", linecolor:"#e2e8f0",
       tickfont:{ size:9.5 },
       automargin: true
     }
@@ -2217,7 +2393,14 @@ safeOn("exportDegradedImgBtn", "click", async () => {
 });
 
 /* =========================================================
-   EXPORT EXCEL DÉGRADÉ — v12 : toutes les dates
+   EXPORT EXCEL DÉGRADÉ — utilise la Vue jour pour l'export
+   ---------------------------------------------------------
+   NOUVEAU v13 : les graphiques exportés dans Excel
+   suivent la même logique que la "Vue jour" :
+   - dtick D1 (une graduation par jour)
+   - Y fixé pour inclure le seuil
+   - ligne de seuil visible
+   - courbe lissée
    ========================================================= */
 async function generateSiteTrendImage(rows){
   const sorted = [...rows].sort((a, b) => {
@@ -2236,8 +2419,9 @@ async function generateSiteTrendImage(rows){
   document.body.appendChild(div);
 
   try{
-    /* ---- v12 : config X-axis avec toutes les dates ---- */
-    const xConf = buildXAxisConfig(rows, { tickSize: 10 });
+    /* Configuration identique à la Vue jour */
+    const xConf = buildXAxisConfigDay(rows, { tickSize: 10 });
+    const yRange = computeFixedYRange(rows);
 
     await Plotly.newPlot(div, [
       {
@@ -2257,7 +2441,10 @@ async function generateSiteTrendImage(rows){
       font:{ family:"Arial", size:10, color:"#334155" },
       showlegend:false,
       xaxis: xConf.axis,
-      yaxis:{ rangemode:"tozero", title:{ text:"Packet Loss (%)", font:{ size:10 } } }
+      yaxis:{
+        range: yRange,
+        title:{ text:"Packet Loss (%)", font:{ size:10 } }
+      }
     }, { staticPlot: true, displayModeBar: false });
 
     await new Promise(r => setTimeout(r, 200));
@@ -2475,6 +2662,16 @@ safeOn("resetBtn", "click", ()=>{
   const siteSort = $("siteSort"); if(siteSort) siteSort.value = "name_asc";
   const trendFilter = $("trendFilter"); if(trendFilter) trendFilter.value = "all";
   const siteSearch = $("siteSearch"); if(siteSearch) siteSearch.value = "";
+
+  /* Reset de la vue graphique sur "day" (comportement par défaut) */
+  chartViewMode = "day";
+  const toggle = $("viewToggle");
+  if(toggle){
+    toggle.querySelectorAll(".view-toggle__btn").forEach(b => {
+      b.classList.toggle("is-active", b.dataset.view === "day");
+    });
+  }
+
   initPeriod();
 
   const mv = $("mapVendorFilter"); if(mv) mv.value = "ALL";
@@ -2557,9 +2754,12 @@ async function init(){
   safeOn("periodPreset", "change", e => setPeriod(e.target.value));
   safeOn("analyzeBtn",   "click",  runAnalysis);
 
+  /* NOUVEAU v13 : branchement du sélecteur de vue */
+  bindViewToggle();
+
   await Promise.all([loadLocations(), loadNetworkLinks()]);
 
-  console.log("🚀 Dashboard initialisé. Période par défaut : 7 jours. v12 : toutes les dates affichées.");
+  console.log("🚀 Dashboard initialisé. Période par défaut : 7 jours. v13 : modes jour/brut + Excel cohérent.");
 }
 
 if(document.readyState === "loading"){
