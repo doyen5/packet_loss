@@ -1895,3 +1895,54 @@ textarea:focus-visible{
   top: 4px !important;
   right: 6px !important;
 }
+
+/* =========================================================
+   26. SÉLECTEUR DE VUE DES GRAPHIQUES (Jour / Brute)
+   ---------------------------------------------------------
+   Permet de basculer entre :
+   - Vue jour (par défaut) : une graduation par jour,
+     axe Y fixé au seuil 0.1%, courbe lissée.
+   - Vue brute : toutes les mesures horaires, axe Y
+     auto-échelonné, lignes droites (style Excel).
+   ========================================================= */
+.view-toggle{
+  display: inline-flex;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.view-toggle__btn{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--c-text-muted);
+  border-radius: 6px;
+  transition: all var(--t-fast);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.view-toggle__btn i{ font-size: 10px; }
+.view-toggle__btn:hover{
+  background: var(--c-primary-50);
+  color: var(--c-primary);
+}
+.view-toggle__btn.is-active{
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-700));
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(37,99,235,.25);
+}
+.view-toggle__btn.is-active i{ color: #fff; }
+
+/* Responsive : le toggle peut passer à la ligne */
+@media(max-width: 650px){
+  .view-toggle{ width: 100%; }
+  .view-toggle__btn{ flex: 1; justify-content: center; }
+}

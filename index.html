@@ -355,6 +355,16 @@
           </div>
         </div>
         <div class="site-filters">
+          <!-- NOUVEAU : sélecteur de mode de vue des graphiques -->
+          <div class="view-toggle" id="viewToggle">
+            <button type="button" class="view-toggle__btn is-active" data-view="day" title="Une graduation par jour (recommandé)">
+              <i class="fa-solid fa-calendar-day"></i> Vue jour
+            </button>
+            <button type="button" class="view-toggle__btn" data-view="raw" title="Toutes les mesures horaires brutes">
+              <i class="fa-solid fa-clock"></i> Vue brute
+            </button>
+          </div>
+
           <div class="search-input">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input id="siteSearch" type="search" placeholder="Rechercher un site...">
