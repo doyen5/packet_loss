@@ -1,20 +1,24 @@
 /* =========================================================
-   PACKET LOSS DASHBOARD — JS v11
+   PACKET LOSS DASHBOARD — JS v12
    ---------------------------------------------------------
-   Correctif v11 :
-   - Détection automatique des HUBs dès qu'une analyse est
-     lancée (déjà présent en v10 via renderHubPanel).
-   - NOUVEAU : clic sur N'IMPORTE QUEL site sur la carte
-     déclenche le mode "HUB actif" : la carte n'affiche plus
-     que ce site + ses voisins directs + les liaisons entre
-     eux.
-   - NOUVEAU : la fonction selectSite() est générique et ne
-     dépend plus d'être dans la liste des HUBs identifiés.
-   - NOUVEAU : renderHubDetails() extrait pour éviter la
-     duplication entre selectHub (panneau) et selectSite
-     (clic carte).
-   - Les correctifs v10 sont conservés (safeOn, init
-     défensif, période par défaut).
+   Correctif v12 :
+   - Affichage de TOUTES les dates sur l'axe X des graphiques.
+     Avant : Plotly choisissait automatiquement 4-6 graduations
+     max, ce qui masquait certaines dates.
+     Maintenant : une graduation par jour (dtick: 'D1'),
+     avec rotation automatique des libellés (-45°) si la
+     période dépasse 12 jours pour éviter le chevauchement.
+
+   Correctifs v11 conservés :
+   - Clic sur n'importe quel marqueur → mode HUB actif
+   - selectSite() générique
+   - renderHubDetails() extrait
+   - Alias selectHub() rétro-compatible
+
+   Correctifs v10 conservés :
+   - safeOn() défensif
+   - init() après DOMContentLoaded
+   - période par défaut = 7 jours
    ========================================================= */
 
 "use strict";
@@ -92,9 +96,7 @@ const $ = id => document.getElementById(id);
    HELPER DÉFENSIF
    ---------------------------------------------------------
    safeOn(id, event, handler) : attache un écouteur
-   UNIQUEMENT si l'élément existe. Évite les erreurs
-   "Cannot read properties of null" quand un élément est
-   absent du HTML.
+   UNIQUEMENT si l'élément existe.
    ========================================================= */
 function safeOn(id, event, handler){
   const el = document.getElementById(id);
@@ -106,7 +108,6 @@ function safeOn(id, event, handler){
   return el;
 }
 
-/* Vérifie au démarrage la présence de tous les éléments attendus */
 function checkRequiredElements(){
   const required = [
     "periodPreset", "startDate", "endDate", "hourRange", "vendor",
@@ -127,27 +128,14 @@ function checkRequiredElements(){
     "degradedExportBar", "degradedCount",
     "exportDegradedPdfBtn", "exportDegradedImgBtn", "exportDegradedXlsBtn"
   ];
-
-  const optional = [
-    "clearHubFilterBtn",
-    "mapResetFloatBtn",
-    "hubPanelBody"
-  ];
-
+  const optional = ["clearHubFilterBtn","mapResetFloatBtn","hubPanelBody"];
   const missingRequired = required.filter(id => !document.getElementById(id));
   const missingOptional = optional.filter(id => !document.getElementById(id));
-
   if(missingRequired.length){
-    console.error(
-      "❌ Éléments HTML OBLIGATOIRES manquants (le dashboard ne fonctionnera pas) :",
-      missingRequired
-    );
+    console.error("❌ Éléments HTML OBLIGATOIRES manquants :", missingRequired);
   }
   if(missingOptional.length){
-    console.warn(
-      "⚠️ Éléments HTML optionnels manquants (fonctionnalités dégradées) :",
-      missingOptional
-    );
+    console.warn("⚠️ Éléments HTML optionnels manquants :", missingOptional);
   }
   if(!missingRequired.length && !missingOptional.length){
     console.log("✅ Tous les éléments HTML attendus sont présents.");
@@ -273,6 +261,60 @@ function animateCounter(el, finalText){
     else el.textContent = finalText;
   }
   requestAnimationFrame(step);
+}
+
+/* =========================================================
+   NOUVEAU v12 — Calcul du nombre de jours uniques
+   ---------------------------------------------------------
+   Sert à décider de la rotation des libellés sur l'axe X :
+   - ≤ 12 jours → libellés horizontaux (0°)
+   -  > 12 jours → libellés inclinés (-45°)
+   ========================================================= */
+function countUniqueDays(rows){
+  if(!rows || !rows.length) return 0;
+  const days = new Set();
+  rows.forEach(r => {
+    const dt = makeDateTime(r);
+    if(dt) days.add(dt.slice(0, 10)); // YYYY-MM-DD
+  });
+  return days.size;
+}
+
+/* =========================================================
+   NOUVEAU v12 — Génère la config X-axis adaptée
+   ---------------------------------------------------------
+   Retourne un objet à passer à Plotly pour l'axe X, avec :
+   - dtick: 'D1'  → une graduation par jour, quoi qu'il arrive
+   - tickformat    → %d/%m
+   - tickangle     → 0 ou -45 selon le nombre de jours
+   ========================================================= */
+function buildXAxisConfig(rows, options = {}){
+  const nDays = countUniqueDays(rows);
+  // Rotation seulement si beaucoup de jours
+  const tickangle = nDays > 12 ? -45 : 0;
+  // Marge basse adaptée à l'inclinaison
+  const extraBottom = nDays > 12 ? 20 : 0;
+
+  return {
+    axis: {
+      type: "date",
+      title: options.title !== undefined
+        ? options.title
+        : { text: "Date", font: { size: 11, color: "#64748b" } },
+      tickformat: "%d/%m",
+      /* Forcer une graduation par jour */
+      dtick: "D1",
+      /* Mode "linear" implicite pour dates : chaque jour = 1 tick */
+      tickmode: "linear",
+      tickangle,
+      /* Plus de nticks arbitraire : on laisse dtick piloter */
+      gridcolor: "#f8fafc",
+      linecolor: "#e2e8f0",
+      tickfont: { size: options.tickSize || 9.5, color: "#64748b" },
+      automargin: true
+    },
+    extraBottom
+  };
 }
 
 /* =========================================================
@@ -536,7 +578,6 @@ function renderDashboard(result){
   const siteStats = recomputeSiteStats(result.sites || [], filteredRows);
   lastSiteStats   = siteStats;
 
-  /* --- KPI principaux --- */
   animateCounter($("kSitesRequested"), String(Number(result.requested_sites_count||0)));
   animateCounter($("kSitesData"),      String(Number(siteStats.length||0)));
   animateCounter($("kRows"),           String(Number(filteredRows.length||0)));
@@ -544,7 +585,6 @@ function renderDashboard(result){
   animateCounter($("kAvg"), `${formatNumber(result.summary?.avg_packet_loss)}%`);
   animateCounter($("kImpacted"), String(Number(result.summary?.impacted_sites||0)));
 
-  /* --- Compteurs supplémentaires --- */
   animateCounter($("kNoDataKpi"), String(Number(result.sites_without_data_count||0)));
 
   const trendCounts = computeTrendCounts(siteStats, filteredRows);
@@ -578,10 +618,6 @@ function renderDashboard(result){
   renderGlobalChart(filteredRows);
   renderWorstTable(siteStats);
 
-  /* ----------------------------------------------------------
-     IMPORTANT : on construit le graphe réseau AVANT d'appeler
-     renderHubPanel() car computeHubScores() s'appuie dessus.
-     ---------------------------------------------------------- */
   buildNetworkGraph();
 
   renderMap(siteStats);
@@ -688,7 +724,7 @@ function renderNoDataSites(result){
 }
 
 /* =========================================================
-   GRAPHE GLOBAL
+   GRAPHE GLOBAL — v12 : toutes les dates sur l'axe X
    ========================================================= */
 function renderGlobalChart(rows){
   const container = $("globalChart");
@@ -714,6 +750,12 @@ function renderGlobalChart(rows){
     return;
   }
 
+  /* ---- v12 : calcul de la config X-axis (toutes les dates) ---- */
+  const xConf = buildXAxisConfig(rows, {
+    title: { text:"Date", font:{size:11,color:"#64748b"} },
+    tickSize: 10.5
+  });
+
   Plotly.newPlot("globalChart",[
     {
       x:points.map(p=>p.x), y:points.map(p=>p.y),
@@ -731,18 +773,13 @@ function renderGlobalChart(rows){
       hovertemplate:"Seuil : 0.1%<extra></extra>"
     }
   ],{
-    margin:{l:55,r:20,t:15,b:80},
+    margin:{ l:55, r:20, t:15, b: 80 + xConf.extraBottom },
     paper_bgcolor:"#ffffff", plot_bgcolor:"#ffffff",
     font:{family:"Inter, Segoe UI, Arial", size:11, color:"#334155"},
     hovermode:"x unified",
     hoverlabel:{bgcolor:"#0f172a",bordercolor:"#0f172a",font:{color:"#fff",size:12}},
     legend:{orientation:"h",y:1.08,x:0,font:{size:11}},
-    xaxis:{
-      type:"date", title:{text:"Date",font:{size:11,color:"#64748b"}},
-      tickformat:"%d/%m", tickangle:0, ticklabelmode:"period", nticks:12,
-      gridcolor:"#f1f5f9", linecolor:"#e2e8f0", tickfont:{size:10.5,color:"#64748b"},
-      automargin: true
-    },
+    xaxis: xConf.axis,
     yaxis:{
       title:{text:"Packet Loss (%)",font:{size:11,color:"#64748b"}},
       rangemode:"tozero", gridcolor:"#f1f5f9", linecolor:"#e2e8f0",
@@ -750,7 +787,6 @@ function renderGlobalChart(rows){
       automargin: true
     }
   },{
-    /* ---- CONFIG MODEBAR CORRIGÉE ---- */
     responsive: true,
     displaylogo: false,
     displayModeBar: true,
@@ -855,10 +891,6 @@ function renderNetworkLinksOnMap(){
     for(const f of features){
       if(!f.geometry || f.geometry.type !== "LineString") continue;
 
-      /* ----------------------------------------------------
-         Filtre HUB actif : on ne garde que les liaisons qui
-         relient le HUB à l'un de ses voisins directs.
-         ---------------------------------------------------- */
       if(hubFilterState.active){
         const text = `${f.properties?.description || ""} ${f.properties?.name || ""}`;
         const ids  = (text.match(/\b([A-Z]{2}\d{3,4})\b/g) || []);
@@ -896,10 +928,6 @@ function renderNetworkLinksOnMap(){
 
 /* =========================================================
    CARTE — MARQUEURS
-   ---------------------------------------------------------
-   NOUVEAU v11 : chaque marqueur possède un écouteur "click"
-   qui appelle selectSite(code). Cela déclenche le mode HUB
-   actif même si le site cliqué n'est pas un HUB identifié.
    ========================================================= */
 function renderMapMarkers(sites){
   if(!map) return;
@@ -910,17 +938,13 @@ function renderMapMarkers(sites){
 
   if(hubFilterState.active){
     filtered = [];
-
     hubFilterState.neighborSet.forEach(siteCode => {
       const code = normalizeSite(siteCode);
-
       const loc = locationIndex[code];
       if(!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))){
         return;
       }
-
       const stat = sites.find(s => normalizeSite(s.Site) === code);
-
       if(stat){
         filtered.push(stat);
       } else {
@@ -939,7 +963,6 @@ function renderMapMarkers(sites){
   }
   else{
     filtered = sites;
-
     if(mapFilterState.vendor !== "ALL"){
       filtered = filtered.filter(s => normalizeSite(s.vendor) === mapFilterState.vendor);
     }
@@ -984,14 +1007,7 @@ function renderMapMarkers(sites){
       icon, riseOnHover: true, keyboard: false, interactive: true
     }).addTo(map);
 
-    /* ------------------------------------------------------
-       NOUVEAU v11 — Clic sur le marqueur :
-       déclenche le mode "HUB actif" pour ce site, ce qui
-       affiche uniquement lui + ses voisins + leurs liaisons.
-       ------------------------------------------------------ */
     marker.on("click", (ev) => {
-      // Empêche la propagation vers la carte (évite de fermer
-      // un éventuel popup ou de déclencher un autre handler).
       if(ev && ev.originalEvent) L.DomEvent.stopPropagation(ev);
       selectSite(code);
     });
@@ -1319,9 +1335,6 @@ function renderHubPanel(siteStats){
       </div>`;
   }).join("");
 
-  /* ------------------------------------------------------
-     Clic sur un HUB du panneau → délègue à selectSite()
-     ------------------------------------------------------ */
   hubList.querySelectorAll(".hub-item").forEach(item=>{
     item.addEventListener("click", ()=>{
       const site = item.dataset.site;
@@ -1332,36 +1345,21 @@ function renderHubPanel(siteStats){
 
 /* =========================================================
    SÉLECTION D'UN SITE (HUB ou non)
-   ---------------------------------------------------------
-   NOUVEAU v11 — Cette fonction remplace selectHub() et
-   fonctionne pour N'IMPORTE QUEL site :
-
-     1. Récupère ses voisins directs depuis le graphe réseau.
-     2. Active le mode HUB actif (filtre carte + liaisons).
-     3. Met à jour le panneau de détails.
-     4. Recentre la carte sur le site + ses voisins.
-
-   Elle est appelée :
-     - au clic sur un marqueur de la carte
-     - au clic sur un HUB du panneau latéral
    ========================================================= */
 function selectSite(siteCode){
   const site = normalizeSite(siteCode);
   if(!site) return;
 
-  /* 1. Récupérer les voisins depuis le graphe réseau */
   let neighbors = [];
   if(networkGraph && networkGraph.adjacency.has(site)){
     neighbors = [...networkGraph.adjacency.get(site)].map(normalizeSite);
   }
 
-  /* 2. Activer le filtre HUB pour ce site */
   selectedHub                = site;
   hubFilterState.active      = true;
   hubFilterState.hubSite     = site;
   hubFilterState.neighborSet = new Set([site, ...neighbors]);
 
-  /* 3. Afficher les boutons de réinitialisation */
   const clearBtn = $("clearHubFilterBtn");
   if(clearBtn) clearBtn.classList.remove("hidden");
   const resetFloat = $("mapResetFloatBtn");
@@ -1369,15 +1367,12 @@ function selectSite(siteCode){
   const layoutEl = $("mapLayout");
   if(layoutEl) layoutEl.classList.add("is-hub-filtered");
 
-  /* 4. Surligner l'élément HUB correspondant s'il existe */
   document.querySelectorAll(".hub-item").forEach(el=>{
     el.classList.toggle("is-active", normalizeSite(el.dataset.site) === site);
   });
 
-  /* 5. Rendre le panneau de détails */
   renderHubDetails(site, neighbors);
 
-  /* 6. Rafraîchir la carte et recentrer */
   if(lastResult && map){
     renderMapMarkers(lastSiteStats);
     renderNetworkLinksOnMap();
@@ -1409,10 +1404,6 @@ function selectSite(siteCode){
 
 /* =========================================================
    RENDU DU PANNEAU DE DÉTAILS D'UN SITE
-   ---------------------------------------------------------
-   NOUVEAU v11 — Extrait de l'ancien selectHub pour être
-   réutilisable aussi bien pour un HUB identifié que pour
-   un site quelconque cliqué sur la carte.
    ========================================================= */
 function renderHubDetails(siteCode, neighbors){
   const details = $("hubDetails");
@@ -1421,7 +1412,6 @@ function renderHubDetails(siteCode, neighbors){
   const site = normalizeSite(siteCode);
   const degree = neighbors.length;
 
-  /* Score affiché uniquement si c'est un HUB identifié */
   const hub = (hubScores || []).find(h => h.site === site);
   const scoreText = hub ? `Score ${(hub.score*100).toFixed(0)}% • ` : "";
   const titleStar = hub ? " ⭐" : "";
@@ -1459,7 +1449,6 @@ function renderHubDetails(siteCode, neighbors){
   `;
   details.classList.remove("hidden");
 
-  /* Clic sur un voisin → recadre la carte sur lui */
   details.querySelectorAll(".dependent").forEach(el=>{
     el.addEventListener("click", (ev)=>{
       ev.stopPropagation();
@@ -1474,15 +1463,8 @@ function renderHubDetails(siteCode, neighbors){
 
 /* =========================================================
    ALIAS RÉTRO-COMPATIBLE
-   ---------------------------------------------------------
-   Certaines parties du code (ou du HTML) peuvent encore
-   appeler selectHub(). On garde un alias pour éviter de
-   casser d'éventuels appels externes.
    ========================================================= */
 function selectHub(site, hubList){
-  // hubList est ignoré : selectSite() recalcule tout depuis
-  // le graphe réseau, ce qui garantit un comportement
-  // identique pour un HUB ou pour un site quelconque.
   selectSite(site);
 }
 
@@ -1518,10 +1500,6 @@ function clearHubFilter(){
 }
 
 safeOn("clearHubFilterBtn", "click", clearHubFilter);
-
-/* =========================================================
-   BOUTON FLOTTANT : AFFICHER TOUS LES SITES
-   ========================================================= */
 safeOn("mapResetFloatBtn", "click", clearHubFilter);
 
 /* =========================================================
@@ -1722,6 +1700,13 @@ function renderSiteGrid(siteStats,rows){
   applySiteFilters();
 }
 
+/* =========================================================
+   MINI-GRAPHIQUE PAR SITE — v12 : toutes les dates
+   ---------------------------------------------------------
+   Avant : nticks:6 → seulement 4-6 dates affichées.
+   Après : dtick:'D1' → une graduation par jour.
+   Rotation automatique si > 12 jours.
+   ========================================================= */
 function renderSiteChart(id, rows, name){
   const el = document.getElementById(id);
   if(!el) return;
@@ -1733,15 +1718,15 @@ function renderSiteChart(id, rows, name){
   const x = sorted.map(r=>makeDateTime(r));
   const y = sorted.map(r=>Number(r.packet_loss));
 
-  /* Annotation "Seuil 0.1%" : on la garde en haut à droite
-     MAIS le modebar est désormais en bas à droite, donc plus
-     de chevauchement. */
   const annotations = [{
     x: x[x.length-1], y: THRESHOLD,
     xref:"x", yref:"y", text:"Seuil 0.1%",
     showarrow:false, xanchor:"right", yanchor:"bottom",
     font:{size:9,color:"#ef4444"}
   }];
+
+  /* ---- v12 : toutes les dates sur l'axe X ---- */
+  const xConf = buildXAxisConfig(rows, { tickSize: 9.5 });
 
   Plotly.newPlot(id,[
     {
@@ -1757,20 +1742,14 @@ function renderSiteChart(id, rows, name){
       hovertemplate:"Seuil : 0.1%<extra></extra>"
     }
   ],{
-    /* Marge basse augmentée (70 au lieu de 60) pour laisser
-       de la place au modebar repositionné en bas à droite. */
-    margin:{l:38,r:8,t:12,b:70},
+    /* Marge basse : 70 de base + 20 si les libellés sont inclinés */
+    margin:{ l:38, r:8, t:12, b: 70 + xConf.extraBottom },
     paper_bgcolor:"#fff", plot_bgcolor:"#fff",
     font:{family:"Inter, Segoe UI, Arial",size:10,color:"#64748b"},
     hovermode:"x unified",
     hoverlabel:{bgcolor:"#0f172a",bordercolor:"#0f172a",font:{color:"#fff",size:11}},
     showlegend:false, annotations,
-    xaxis:{
-      type:"date", tickformat:"%d/%m", tickangle:0,
-      ticklabelmode:"period", nticks:6,
-      gridcolor:"#f8fafc", linecolor:"#e2e8f0", tickfont:{size:9.5},
-      automargin: true
-    },
+    xaxis: xConf.axis,
     yaxis:{
       title:{text:"%",font:{size:10,color:"#94a3b8"}},
       rangemode:"tozero",
@@ -1778,18 +1757,13 @@ function renderSiteChart(id, rows, name){
       automargin: true
     }
   },{
-    /* ---- CONFIG MODEBAR CORRIGÉE ---- */
     responsive: true,
     displaylogo: false,
-    displayModeBar: true,                 /* toujours affiché */
+    displayModeBar: true,
     modeBarButtonsToRemove: [
-      'lasso2d',                          /* lasso inutile */
-      'select2d',                         /* sélection rect. inutile */
-      'hoverClosestCartesian',            /* bruit */
-      'hoverCompareCartesian',            /* bruit */
-      'toggleSpikelines',                 /* bruit */
-      'zoom2d',                           /* mode déjà par défaut */
-      'pan2d'                             /* inutile ici */
+      'lasso2d','select2d',
+      'hoverClosestCartesian','hoverCompareCartesian',
+      'toggleSpikelines','zoom2d','pan2d'
     ],
     toImageButtonOptions: {
       format: 'png',
@@ -1859,7 +1833,7 @@ safeOn("siteSort", "change", applySiteFilters);
 safeOn("trendFilter", "change", applySiteFilters);
 
 /* =========================================================
-   EXPORT PDF / IMAGE (rapport complet)
+   EXPORT PDF / IMAGE
    ========================================================= */
 async function captureDashboard(){
   if(typeof html2canvas === "undefined"){
@@ -2103,6 +2077,9 @@ function buildDegradedReportDOM(degradedSites){
   return { container, rowsBySite };
 }
 
+/* =========================================================
+   GRAPHIQUE DU RAPPORT DÉGRADÉ — v12 : toutes les dates
+   ========================================================= */
 function renderReportChart(id, rows){
   const el = document.getElementById(id);
   if(!el) return;
@@ -2112,6 +2089,9 @@ function renderReportChart(id, rows){
   });
   const x = sorted.map(r => makeDateTime(r));
   const y = sorted.map(r => Number(r.packet_loss));
+
+  /* ---- v12 : toutes les dates sur l'axe X ---- */
+  const xConf = buildXAxisConfig(rows, { tickSize: 9.5 });
 
   Plotly.newPlot(id, [
     {
@@ -2128,23 +2108,17 @@ function renderReportChart(id, rows){
       hoverinfo:"skip"
     }
   ], {
-    margin:{ l:38, r:8, t:12, b:46 },
+    margin:{ l:38, r:8, t:12, b: 46 + xConf.extraBottom },
     paper_bgcolor:"#fff", plot_bgcolor:"#fff",
     font:{ family:"Inter, Segoe UI, Arial", size:10, color:"#64748b" },
     hovermode:"x unified", showlegend:false,
-    xaxis:{
-      type:"date", tickformat:"%d/%m", tickangle:0,
-      ticklabelmode:"period", nticks:6,
-      gridcolor:"#f8fafc", linecolor:"#e2e8f0", tickfont:{ size:9.5 },
-      automargin: true
-    },
+    xaxis: xConf.axis,
     yaxis:{
       rangemode:"tozero", gridcolor:"#f8fafc", linecolor:"#e2e8f0",
       tickfont:{ size:9.5 },
       automargin: true
     }
   }, {
-    /* ---- CONFIG MODEBAR CORRIGÉE ---- */
     responsive: true,
     displaylogo: false,
     displayModeBar: true,
@@ -2243,7 +2217,7 @@ safeOn("exportDegradedImgBtn", "click", async () => {
 });
 
 /* =========================================================
-   EXPORT EXCEL DÉGRADÉ (avec graphiques si ExcelJS dispo)
+   EXPORT EXCEL DÉGRADÉ — v12 : toutes les dates
    ========================================================= */
 async function generateSiteTrendImage(rows){
   const sorted = [...rows].sort((a, b) => {
@@ -2262,6 +2236,9 @@ async function generateSiteTrendImage(rows){
   document.body.appendChild(div);
 
   try{
+    /* ---- v12 : config X-axis avec toutes les dates ---- */
+    const xConf = buildXAxisConfig(rows, { tickSize: 10 });
+
     await Plotly.newPlot(div, [
       {
         x, y, type:"scatter", mode:"lines+markers",
@@ -2275,11 +2252,11 @@ async function generateSiteTrendImage(rows){
         line:{ dash:"dash", color:"#ef4444", width:1.2 }
       }
     ], {
-      margin:{ l:50, r:20, t:20, b:40 },
+      margin:{ l:50, r:20, t:20, b: 40 + xConf.extraBottom },
       paper_bgcolor:"#ffffff", plot_bgcolor:"#ffffff",
       font:{ family:"Arial", size:10, color:"#334155" },
       showlegend:false,
-      xaxis:{ type:"date", tickformat:"%d/%m", ticklabelmode:"period", nticks:8 },
+      xaxis: xConf.axis,
       yaxis:{ rangemode:"tozero", title:{ text:"Packet Loss (%)", font:{ size:10 } } }
     }, { staticPlot: true, displayModeBar: false });
 
@@ -2572,29 +2549,19 @@ function clearMessage(){
 
 /* =========================================================
    INITIALISATION
-   ---------------------------------------------------------
-   On attend DOMContentLoaded pour garantir que tous les
-   éléments HTML sont disponibles AVANT d'attacher les
-   écouteurs.
    ========================================================= */
 async function init(){
-  /* 1. Vérifier les éléments HTML */
   checkRequiredElements();
-
-  /* 2. Initialiser la période par défaut (7 jours) */
   initPeriod();
 
-  /* 3. Attacher les écouteurs principaux */
   safeOn("periodPreset", "change", e => setPeriod(e.target.value));
   safeOn("analyzeBtn",   "click",  runAnalysis);
 
-  /* 4. Charger les données de référence */
   await Promise.all([loadLocations(), loadNetworkLinks()]);
 
-  console.log("🚀 Dashboard initialisé. Période par défaut : 7 jours.");
+  console.log("🚀 Dashboard initialisé. Période par défaut : 7 jours. v12 : toutes les dates affichées.");
 }
 
-/* Lance init() dès que le DOM est prêt */
 if(document.readyState === "loading"){
   document.addEventListener("DOMContentLoaded", init);
 } else {
