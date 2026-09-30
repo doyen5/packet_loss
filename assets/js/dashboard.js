@@ -1,35 +1,20 @@
 /* =========================================================
-   PACKET LOSS DASHBOARD — JS v13
+   PACKET LOSS DASHBOARD — JS v17
    ---------------------------------------------------------
-   Nouveautés v13 :
-   - NOUVEAU : sélecteur "Vue jour / Vue brute" pour les
-     graphiques par site.
-       * Vue jour  : une graduation par jour, axe Y fixé
-                     pour inclure le seuil 0.1%, courbe
-                     lissée. (comportement actuel)
-       * Vue brute : toutes les mesures horaires, axe Y
-                     auto-échelonné, lignes droites.
-                     (comportement identique à l'export Excel)
-   - NOUVEAU : l'export Excel utilise désormais la même
-     configuration que la "Vue jour" :
-       * dtick = 'D1' (une graduation par jour)
-       * Y fixé pour inclure la ligne seuil 0.1%
-       * courbe lissée
-       * annotation "Seuil 0.1%"
+   Version épurée : toutes les fonctionnalités d'export
+   (PDF / Image / Excel) ont été SUPPRIMÉES car elles
+   reposaient sur html2canvas qui provoquait l'erreur :
+     "Error parsing CSS component value, unexpected EOF"
 
-   Correctifs v12 conservés :
-   - Affichage de toutes les dates sur l'axe X (dtick D1)
-   - Rotation auto des libellés si > 12 jours
-
-   Correctifs v11 conservés :
-   - Clic sur n'importe quel marqueur → mode HUB actif
-   - selectSite() générique
-   - renderHubDetails() extrait
-
-   Correctifs v10 conservés :
-   - safeOn() défensif
-   - init() après DOMContentLoaded
-   - période par défaut = 7 jours
+   Fonctionnalités conservées :
+   - Analyse Packet Loss complète
+   - KPI + résumé + taux de couverture
+   - Worst Sites
+   - Carte réseau + détection HUBs + filtres
+   - Graphique global
+   - Analyse détaillée par site
+   - Vue jour / Vue brute
+   - Filtres + recherche + tri
    ========================================================= */
 
 "use strict";
@@ -78,9 +63,6 @@ let lastResult        = null;
 let lastFilteredRows  = [];
 let lastSiteStats     = [];
 
-/* NOUVEAU v13 : mode d'affichage des graphiques par site.
-   - 'day' : vue synthétique (1 point par jour, seuil visible)
-   - 'raw' : vue brute horaire (identique à l'export Excel) */
 let chartViewMode = "day";
 
 const siteTrends = {};
@@ -114,7 +96,7 @@ const $ = id => document.getElementById(id);
 function safeOn(id, event, handler){
   const el = document.getElementById(id);
   if(!el){
-    console.warn(`[DOM] Élément #${id} introuvable dans le HTML — écouteur "${event}" non attaché.`);
+    console.warn(`[DOM] Élément #${id} introuvable — écouteur "${event}" non attaché.`);
     return null;
   }
   el.addEventListener(event, handler);
@@ -137,13 +119,12 @@ function checkRequiredElements(){
     "mapLayout", "map", "mapInfo",
     "hubPanelToggle", "hubPanelToggleFloat", "hubList", "hubDetails",
     "siteSearch", "siteSort", "trendFilter", "siteGrid",
-    "exportBar", "exportPdfBtn", "exportImgBtn",
-    "degradedExportBar", "degradedCount",
-    "exportDegradedPdfBtn", "exportDegradedImgBtn", "exportDegradedXlsBtn",
-    /* NOUVEAU v13 */
     "viewToggle"
   ];
-  const optional = ["clearHubFilterBtn","mapResetFloatBtn","hubPanelBody"];
+  const optional = [
+    "clearHubFilterBtn", "mapResetFloatBtn", "hubPanelBody",
+    "kCoverage", "kCoverageBar"
+  ];
   const missingRequired = required.filter(id => !document.getElementById(id));
   const missingOptional = optional.filter(id => !document.getElementById(id));
   if(missingRequired.length){
@@ -180,13 +161,7 @@ function setStatus(text, state){
   if(typeof Plotly === "undefined") missing.push("Plotly");
   if(typeof L      === "undefined") missing.push("Leaflet");
 
-  const hasJsPDF   = (window.jspdf && window.jspdf.jsPDF) || (typeof window.jsPDF !== "undefined");
-  const hasExcelJS = typeof window.ExcelJS !== "undefined";
-
-  if(!hasJsPDF)                          optional.push("jsPDF");
   if(typeof XLSX        === "undefined") optional.push("XLSX");
-  if(!hasExcelJS)                        optional.push("ExcelJS (trends Excel désactivés)");
-  if(typeof html2canvas === "undefined") optional.push("html2canvas");
   if(typeof window.DOMPurify === "undefined") optional.push("DOMPurify");
 
   if(missing.length){
@@ -278,9 +253,6 @@ function animateCounter(el, finalText){
   requestAnimationFrame(step);
 }
 
-/* =========================================================
-   Calcul du nombre de jours uniques
-   ========================================================= */
 function countUniqueDays(rows){
   if(!rows || !rows.length) return 0;
   const days = new Set();
@@ -291,9 +263,6 @@ function countUniqueDays(rows){
   return days.size;
 }
 
-/* =========================================================
-   Config X-axis "Vue jour" : une graduation par jour
-   ========================================================= */
 function buildXAxisConfigDay(rows, options = {}){
   const nDays = countUniqueDays(rows);
   const tickangle = nDays > 12 ? -45 : 0;
@@ -318,15 +287,8 @@ function buildXAxisConfigDay(rows, options = {}){
   };
 }
 
-/* =========================================================
-   NOUVEAU v13 — Config X-axis "Vue brute"
-   ---------------------------------------------------------
-   Affiche toutes les mesures horaires avec un format
-   "JJ/MM HH:MM" et une rotation automatique.
-   ========================================================= */
 function buildXAxisConfigRaw(rows, options = {}){
   const nPoints = (rows || []).length;
-  /* Rotation systématique : beaucoup de points horaires */
   const tickangle = nPoints > 20 ? -45 : -30;
   const extraBottom = nPoints > 20 ? 30 : 20;
 
@@ -337,8 +299,6 @@ function buildXAxisConfigRaw(rows, options = {}){
         ? options.title
         : { text: "Date et heure", font: { size: 11, color: "#64748b" } },
       tickformat: "%d/%m %H:%M",
-      /* Auto-échelonnage : Plotly choisit, mais on limite
-         le nombre max de ticks pour éviter le chevauchement. */
       nticks: Math.min(nPoints, 20),
       tickangle,
       gridcolor: "#f8fafc",
@@ -350,21 +310,10 @@ function buildXAxisConfigRaw(rows, options = {}){
   };
 }
 
-/* =========================================================
-   NOUVEAU v13 — Calcul de la plage Y pour "Vue jour"
-   ---------------------------------------------------------
-   On force l'axe Y à inclure la ligne du seuil 0.1%.
-   Cela rend les petits pics visuellement corrects par
-   rapport au seuil métier.
-   ========================================================= */
 function computeFixedYRange(rows){
   const values = (rows || []).map(r => Number(r.packet_loss) || 0);
   const maxVal = values.length ? Math.max(...values) : 0;
-
-  /* On prend au minimum le seuil * 1.25 pour que la ligne
-     du seuil ne soit jamais collée au bord haut. */
   const upper = Math.max(THRESHOLD * 1.25, maxVal * 1.2, 0.05);
-
   return [0, upper];
 }
 
@@ -464,10 +413,8 @@ async function loadNetworkLinks(){
       if(!r.ok) throw new Error();
       const g = await r.json();
       networkLinks[type] = Array.isArray(g.features) ? g.features : [];
-      console.log(`[Réseau] ${type} (${LINK_LABELS[type]}) : ${networkLinks[type].length} lien(s)`);
     }catch(e){
       networkLinks[type] = [];
-      console.warn(`[Réseau] ${type} (${LINK_LABELS[type]}) : fichier indisponible`);
     }
   });
   await Promise.all(promises);
@@ -633,6 +580,21 @@ function renderDashboard(result){
 
   animateCounter($("kNoDataKpi"), String(Number(result.sites_without_data_count||0)));
 
+  /* --- Taux de couverture --- */
+  const totalRequested = Number(result.requested_sites_count || 0);
+  const totalWithData  = Number(siteStats.length || 0);
+  const coveragePct    = totalRequested > 0
+    ? Math.round((totalWithData / totalRequested) * 100)
+    : 0;
+
+  const covEl = $("kCoverage");
+  if(covEl) covEl.textContent = coveragePct + "%";
+
+  const covBar = $("kCoverageBar");
+  if(covBar){
+    setTimeout(() => { covBar.style.width = coveragePct + "%"; }, 50);
+  }
+
   const trendCounts = computeTrendCounts(siteStats, filteredRows);
   animateCounter($("kDegrading"), String(trendCounts.degrading));
   animateCounter($("kStable"),    String(trendCounts.stable));
@@ -654,18 +616,11 @@ function renderDashboard(result){
   if(summaryPeriod) summaryPeriod.textContent =
     `${formatDateFR(result.start_date)} → ${formatDateFR(result.end_date)}`;
 
-  const degradedCount = siteStats.filter(s => Number(s.avg_packet_loss) > THRESHOLD).length;
-  const degCount = $("degradedCount");
-  if(degCount) degCount.textContent = degradedCount;
-  const degBar = $("degradedExportBar");
-  if(degBar) degBar.classList.toggle("hidden", degradedCount === 0);
-
   renderNoDataSites(result);
   renderGlobalChart(filteredRows);
   renderWorstTable(siteStats);
 
   buildNetworkGraph();
-
   renderMap(siteStats);
   renderHubPanel(siteStats);
 
@@ -770,7 +725,7 @@ function renderNoDataSites(result){
 }
 
 /* =========================================================
-   GRAPHE GLOBAL — conserve la "Vue jour" (lisible)
+   GRAPHE GLOBAL
    ========================================================= */
 function renderGlobalChart(rows){
   const container = $("globalChart");
@@ -839,14 +794,7 @@ function renderGlobalChart(rows){
       'lasso2d','select2d',
       'hoverClosestCartesian','hoverCompareCartesian',
       'toggleSpikelines','zoom2d','pan2d'
-    ],
-    toImageButtonOptions: {
-      format: 'png',
-      filename: 'packet-loss-global',
-      height: 700,
-      width: 1400,
-      scale: 2
-    }
+    ]
   });
 }
 
@@ -1188,7 +1136,6 @@ function buildNetworkGraph(){
     }
   }
   networkGraph = { adjacency, edges };
-  console.log(`[Graphe] ${adjacency.size} nœuds • ${edges.length} arêtes`);
 }
 
 function computeDegree(adjacency){
@@ -1320,7 +1267,6 @@ function computeHubScores(rows){
 
   scores.sort((a,b)=>b.score - a.score);
   const filtered = scores.filter(s => s.degree >= 2 && s.score > 0.05);
-  console.log(`[HUB] ${filtered.length} HUB(s) identifié(s) sur ${scores.length} sites`);
   return filtered;
 }
 
@@ -1389,7 +1335,7 @@ function renderHubPanel(siteStats){
 }
 
 /* =========================================================
-   SÉLECTION D'UN SITE (HUB ou non)
+   SÉLECTION D'UN SITE
    ========================================================= */
 function selectSite(siteCode){
   const site = normalizeSite(siteCode);
@@ -1577,10 +1523,7 @@ safeOn("toggleHubs", "change", e=>{
 });
 
 /* =========================================================
-   NOUVEAU v13 — ÉCOUTEUR DU SÉLECTEUR DE VUE
-   ---------------------------------------------------------
-   Bascule entre 'day' et 'raw'. Si une analyse existe déjà,
-   on redessine immédiatement les graphiques.
+   ÉCOUTEUR DU SÉLECTEUR DE VUE
    ========================================================= */
 function bindViewToggle(){
   const toggle = $("viewToggle");
@@ -1590,15 +1533,12 @@ function bindViewToggle(){
       const view = btn.dataset.view;
       if(view === chartViewMode) return;
 
-      /* Met à jour l'état visuel des boutons */
       toggle.querySelectorAll(".view-toggle__btn").forEach(b => {
         b.classList.toggle("is-active", b.dataset.view === view);
       });
 
       chartViewMode = view;
-      console.log(`[Vue] Mode graphique : ${chartViewMode}`);
 
-      /* Redessine les graphiques par site si une analyse existe */
       if(lastResult && lastSiteStats.length){
         renderSiteGrid(lastSiteStats, lastFilteredRows);
       }
@@ -1773,12 +1713,6 @@ function renderSiteGrid(siteStats,rows){
   applySiteFilters();
 }
 
-/* =========================================================
-   MINI-GRAPHIQUE PAR SITE — dispatcher
-   ---------------------------------------------------------
-   NOUVEAU v13 : aiguille vers la fonction de rendu adaptée
-   au mode courant ('day' ou 'raw').
-   ========================================================= */
 function renderSiteChart(id, rows, name){
   if(chartViewMode === "raw"){
     renderSiteChartRaw(id, rows, name);
@@ -1787,14 +1721,6 @@ function renderSiteChart(id, rows, name){
   }
 }
 
-/* =========================================================
-   MINI-GRAPHIQUE — VUE JOUR (comportement actuel amélioré)
-   ---------------------------------------------------------
-   - Une graduation par jour (dtick D1)
-   - Axe Y FIXÉ pour inclure le seuil 0.1%
-   - Courbe lissée
-   - Ligne de seuil visible
-   ========================================================= */
 function renderSiteChartDay(id, rows, name){
   const el = document.getElementById(id);
   if(!el) return;
@@ -1851,26 +1777,10 @@ function renderSiteChartDay(id, rows, name){
       'lasso2d','select2d',
       'hoverClosestCartesian','hoverCompareCartesian',
       'toggleSpikelines','zoom2d','pan2d'
-    ],
-    toImageButtonOptions: {
-      format: 'png',
-      filename: `packet-loss-${name}-jour`,
-      height: 600,
-      width: 1200,
-      scale: 2
-    }
+    ]
   });
 }
 
-/* =========================================================
-   MINI-GRAPHIQUE — VUE BRUTE (style Excel)
-   ---------------------------------------------------------
-   - Toutes les mesures horaires
-   - Axe Y AUTO-ÉCHELONNÉ (mise en évidence des pics)
-   - Lignes droites (pas de spline)
-   - Ligne de seuil visible UNIQUEMENT si le pic dépasse
-     le seuil, sinon masquée pour ne pas fausser l'échelle
-   ========================================================= */
 function renderSiteChartRaw(id, rows, name){
   const el = document.getElementById(id);
   if(!el) return;
@@ -1884,13 +1794,9 @@ function renderSiteChartRaw(id, rows, name){
 
   const xConf = buildXAxisConfigRaw(rows, { tickSize: 8.5 });
 
-  /* Auto-échelle : on laisse Plotly choisir, mais on
-     ajoute une petite marge au-dessus du max. */
   const maxVal = y.length ? Math.max(...y) : 0;
   const yRange = [0, maxVal * 1.15 || 0.01];
 
-  /* On n'affiche la ligne du seuil que si elle est
-     visible dans l'échelle actuelle. */
   const showThresholdLine = maxVal >= THRESHOLD * 0.9;
 
   const traces = [
@@ -1911,8 +1817,6 @@ function renderSiteChartRaw(id, rows, name){
     });
   }
 
-  /* Ajustement de l'échelle Y pour inclure le seuil si
-     on l'affiche (pour éviter qu'il soit hors cadre). */
   const finalYRange = showThresholdLine
     ? [0, Math.max(maxVal * 1.15, THRESHOLD * 1.15)]
     : yRange;
@@ -1939,14 +1843,7 @@ function renderSiteChartRaw(id, rows, name){
       'lasso2d','select2d',
       'hoverClosestCartesian','hoverCompareCartesian',
       'toggleSpikelines','zoom2d','pan2d'
-    ],
-    toImageButtonOptions: {
-      format: 'png',
-      filename: `packet-loss-${name}-brut`,
-      height: 600,
-      width: 1400,
-      scale: 2
-    }
+    ]
   });
 }
 
@@ -2008,648 +1905,6 @@ safeOn("siteSort", "change", applySiteFilters);
 safeOn("trendFilter", "change", applySiteFilters);
 
 /* =========================================================
-   EXPORT PDF / IMAGE
-   ========================================================= */
-async function captureDashboard(){
-  if(typeof html2canvas === "undefined"){
-    throw new Error("Export indisponible (html2canvas manquant).");
-  }
-  const exportBar = $("exportBar");
-  const previousDisplay = exportBar ? exportBar.style.display : "";
-  if(exportBar) exportBar.style.display = "none";
-  const el = $("dashboard");
-  if(!el) throw new Error("Élément #dashboard introuvable.");
-  try{
-    return await html2canvas(el,{
-      backgroundColor:"#f8fafc", scale:2, useCORS:true, allowTaint:false, logging:false,
-      windowWidth: el.scrollWidth, windowHeight: el.scrollHeight
-    });
-  }finally{
-    if(exportBar) exportBar.style.display = previousDisplay || "";
-  }
-}
-
-async function exportImage(){
-  try{
-    const canvas = await captureDashboard();
-    const link = document.createElement("a");
-    link.download = `packet-loss-report-${new Date().toISOString().slice(0,10)}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  }catch(e){
-    console.error(e);
-    showMessage("Échec de l'export image : " + e.message);
-  }
-}
-
-async function exportPDF(){
-  try{
-    const JsPDFCtor =
-      (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF
-      : (typeof window.jsPDF !== "undefined") ? window.jsPDF
-      : null;
-    if(!JsPDFCtor) throw new Error("jsPDF non chargé.");
-
-    const pdf        = new JsPDFCtor({orientation:"portrait",unit:"mm",format:"a4"});
-    const pageWidth  = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin     = 5;
-    const imgWidth   = pageWidth - margin*2;
-    const usableH    = pageHeight - margin*2;
-
-    const exportBar     = $("exportBar");
-    const dashboard     = $("dashboard");
-    const siteGrid      = $("siteGrid");
-    const siteGridPanel = siteGrid ? siteGrid.closest("section.panel") : null;
-    if(!dashboard || !siteGrid || !siteGridPanel) throw new Error("Éléments HTML manquants.");
-
-    const prevExportDisplay = exportBar ? exportBar.style.display : "";
-    const prevPanelDisplay  = siteGridPanel.style.display;
-
-    const allCards     = [...siteGrid.querySelectorAll(".site-card")];
-    const visibleCards = allCards.filter(c => c.style.display !== "none");
-    const originalDisplays = allCards.map(c => c.style.display);
-
-    if(exportBar) exportBar.style.display = "none";
-
-    try{
-      siteGridPanel.style.display = "none";
-      await new Promise(r => setTimeout(r, 120));
-      if(map) map.invalidateSize();
-
-      const topCanvas = await html2canvas(dashboard,{
-        backgroundColor:"#f8fafc", scale:2, useCORS:true, allowTaint:false, logging:false,
-        windowWidth: dashboard.scrollWidth, windowHeight: dashboard.scrollHeight
-      });
-      const topImgData = topCanvas.toDataURL("image/png");
-      const topImgH    = (topCanvas.height * imgWidth) / topCanvas.width;
-
-      let heightLeft = topImgH;
-      let position   = margin;
-      pdf.addImage(topImgData,"PNG",margin,position,imgWidth,topImgH);
-      heightLeft -= usableH;
-
-      while(heightLeft > 0){
-        position = heightLeft - topImgH + margin;
-        pdf.addPage();
-        pdf.addImage(topImgData,"PNG",margin,position,imgWidth,topImgH);
-        heightLeft -= usableH;
-      }
-
-      siteGridPanel.style.display = prevPanelDisplay || "";
-      if(!visibleCards.length){
-        pdf.save(`packet-loss-report-${new Date().toISOString().slice(0,10)}.pdf`);
-        return;
-      }
-      allCards.forEach(c => c.style.display = "none");
-
-      const CARDS_PER_PAGE = 12;
-      for(let i=0; i<visibleCards.length; i+=CARDS_PER_PAGE){
-        const group = visibleCards.slice(i,i+CARDS_PER_PAGE);
-        group.forEach(c => c.style.display = "");
-        await new Promise(r => setTimeout(r, 180));
-
-        const gridCanvas = await html2canvas(siteGrid,{
-          backgroundColor:"#f8fafc", scale:2, useCORS:true, allowTaint:false, logging:false,
-          windowWidth: siteGrid.scrollWidth, windowHeight: siteGrid.scrollHeight
-        });
-        const gridImgData = gridCanvas.toDataURL("image/png");
-        let finalImgW = imgWidth;
-        let finalImgH = (gridCanvas.height * imgWidth) / gridCanvas.width;
-        if(finalImgH > usableH){
-          const ratio = usableH / finalImgH;
-          finalImgW = imgWidth * ratio;
-          finalImgH = usableH;
-        }
-        const xOffset = margin + (imgWidth - finalImgW) / 2;
-        pdf.addPage();
-        pdf.addImage(gridImgData,"PNG",xOffset,margin,finalImgW,finalImgH);
-        group.forEach(c => c.style.display = "none");
-      }
-
-      pdf.save(`packet-loss-report-${new Date().toISOString().slice(0,10)}.pdf`);
-    }finally{
-      if(exportBar) exportBar.style.display = prevExportDisplay || "";
-      siteGridPanel.style.display = prevPanelDisplay || "";
-      allCards.forEach((c,idx) => { c.style.display = originalDisplays[idx] || ""; });
-      if(map) setTimeout(() => map.invalidateSize(), 50);
-    }
-  }catch(e){
-    console.error(e);
-    showMessage("Échec de l'export PDF : " + e.message);
-  }
-}
-
-safeOn("exportPdfBtn", "click", exportPDF);
-safeOn("exportImgBtn", "click", exportImage);
-
-/* =========================================================
-   RAPPORT DÉGRADÉ — DOM
-   ========================================================= */
-function buildDegradedReportDOM(degradedSites){
-  const container = document.createElement("div");
-  container.id = "degradedReportOffscreen";
-
-  const period = lastResult ?
-    `${formatDateFR(lastResult.start_date)} → ${formatDateFR(lastResult.end_date)}` : "-";
-  const vendor = lastResult?.vendor === "ALL" ? "Tous" : (lastResult?.vendor || "-");
-  const hourLabels = {
-    "all":"Toute la journée","00-06":"Nuit (00h-06h)","06-12":"Matin (06h-12h)",
-    "12-18":"Après-midi (12h-18h)","18-24":"Soir (18h-24h)"
-  };
-  const hourRange = $("hourRange")?.value || "all";
-  const hourLabel = hourLabels[hourRange] || "Toute la journée";
-  const totalSites = lastResult?.requested_sites_count || 0;
-  const generatedAt = new Date().toLocaleString("fr-FR", {
-    day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit"
-  });
-
-  const rowsBySite = {};
-  (lastFilteredRows || []).forEach(r => {
-    const site = normalizeSite(r.Site);
-    if (!site) return;
-    (rowsBySite[site] ||= []).push(r);
-  });
-
-  const html = `
-    <div class="degraded-report__header">
-      <div class="degraded-report__title">
-        <i class="fa-solid fa-triangle-exclamation"></i>
-        <div>
-          <h1>Rapport des sites dégradés</h1>
-          <p>Seuil critique : <strong>0.1%</strong> • ${degradedSites.length} site(s) concerné(s)</p>
-        </div>
-      </div>
-      <div class="degraded-report__meta">
-        <p><strong>Période :</strong> ${period}</p>
-        <p><strong>Plage horaire :</strong> ${hourLabel}</p>
-        <p><strong>Vendor :</strong> ${vendor}</p>
-        <p><strong>Généré le :</strong> ${generatedAt}</p>
-      </div>
-    </div>
-
-    <div class="degraded-report__summary-kpi">
-      <div class="degraded-report__kpi"><span>Sites dégradés</span><strong>${degradedSites.length}</strong></div>
-      <div class="degraded-report__kpi"><span>Sites analysés</span><strong>${totalSites}</strong></div>
-      <div class="degraded-report__kpi">
-        <span>Ratio dégradé</span>
-        <strong>${totalSites ? ((degradedSites.length / totalSites) * 100).toFixed(1) : 0}%</strong>
-      </div>
-    </div>
-
-    <div class="degraded-report__section">
-      <h2>Synthèse par site</h2>
-      <table class="degraded-report__table">
-        <thead>
-          <tr>
-            <th>#</th><th>Site</th><th>Vendor</th><th>Lien</th>
-            <th>Perte moy.</th><th>Max</th><th>Temps dégradé</th><th>Plus longue période</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${degradedSites.map((s, i) => {
-            const link = getSiteLinkInfo(normalizeSite(s.Site));
-            const deg  = s.degradedDuration || {totalHours:0,longestRun:0};
-            return `
-              <tr>
-                <td>#${i + 1}</td>
-                <td><strong>${escapeHtml(s.Site)}</strong></td>
-                <td>${escapeHtml(s.vendor)}</td>
-                <td>${link.label}</td>
-                <td>${formatNumber(s.avg_packet_loss)}%</td>
-                <td>${formatNumber(s.max_packet_loss)}%</td>
-                <td>${formatDuration(deg.totalHours)}</td>
-                <td>${formatDuration(deg.longestRun)}</td>
-              </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="degraded-report__section">
-      <h2>Graphiques de tendance</h2>
-      <p class="degraded-report__hint">Évolution horaire du Packet Loss pour chaque site dégradé. Ligne rouge = seuil 0.1%.</p>
-      <div class="degraded-report__charts">
-        ${degradedSites.map(s => {
-          const siteId = `report-chart-${s.Site.replace(/[^A-Z0-9_-]/g, "-")}`;
-          const link   = getSiteLinkInfo(normalizeSite(s.Site));
-          return `
-            <div class="degraded-report__chart-card">
-              <h3>${escapeHtml(s.Site)} <span class="degraded-report__badge">${link.label}</span></h3>
-              <div class="degraded-report__chart" id="${siteId}"></div>
-            </div>`;
-        }).join("")}
-      </div>
-    </div>
-  `;
-
-  if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
-    container.innerHTML = window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
-  } else {
-    container.innerHTML = html;
-  }
-
-  return { container, rowsBySite };
-}
-
-/* =========================================================
-   GRAPHIQUE DU RAPPORT DÉGRADÉ — utilise la Vue jour
-   ========================================================= */
-function renderReportChart(id, rows){
-  const el = document.getElementById(id);
-  if(!el) return;
-  const sorted = [...rows].sort((a, b) => {
-    const da = makeDateTime(a) || "", db = makeDateTime(b) || "";
-    return da.localeCompare(db);
-  });
-  const x = sorted.map(r => makeDateTime(r));
-  const y = sorted.map(r => Number(r.packet_loss));
-
-  const xConf = buildXAxisConfigDay(rows, { tickSize: 9.5 });
-  const yRange = computeFixedYRange(rows);
-
-  Plotly.newPlot(id, [
-    {
-      x, y, type:"scatter", mode:"lines+markers",
-      line:{ color:"#2563eb", width:2, shape:"spline", smoothing:0.5 },
-      marker:{ color:"#2563eb", size:4 },
-      fill:"tozeroy", fillcolor:"rgba(37,99,235,.08)",
-      hovertemplate:"%{x|%d/%m %H:%M}<br>Packet Loss : <b>%{y:.4f}%</b><extra></extra>"
-    },
-    {
-      x, y: x.map(() => THRESHOLD),
-      type:"scatter", mode:"lines",
-      line:{ dash:"dash", color:"#ef4444", width:1.2 },
-      hoverinfo:"skip"
-    }
-  ], {
-    margin:{ l:38, r:8, t:12, b: 46 + xConf.extraBottom },
-    paper_bgcolor:"#fff", plot_bgcolor:"#fff",
-    font:{ family:"Inter, Segoe UI, Arial", size:10, color:"#64748b" },
-    hovermode:"x unified", showlegend:false,
-    xaxis: xConf.axis,
-    yaxis:{
-      range: yRange,
-      gridcolor:"#f8fafc", linecolor:"#e2e8f0",
-      tickfont:{ size:9.5 },
-      automargin: true
-    }
-  }, {
-    responsive: true,
-    displaylogo: false,
-    displayModeBar: true,
-    modeBarButtonsToRemove: [
-      'lasso2d','select2d',
-      'hoverClosestCartesian','hoverCompareCartesian',
-      'toggleSpikelines','zoom2d','pan2d'
-    ],
-    toImageButtonOptions: {
-      format: 'png',
-      filename: `degraded-${id}`,
-      height: 600,
-      width: 1200,
-      scale: 2
-    }
-  });
-}
-
-async function generateDegradedReportCanvas(){
-  const degradedSites = (lastSiteStats || []).filter(s =>
-    Number(s.avg_packet_loss) > THRESHOLD
-  );
-  if (!degradedSites.length){
-    throw new Error("Aucun site dégradé à inclure dans le rapport.");
-  }
-  if (typeof html2canvas === "undefined"){
-    throw new Error("Export indisponible (html2canvas manquant).");
-  }
-
-  const { container, rowsBySite } = buildDegradedReportDOM(degradedSites);
-  document.body.appendChild(container);
-  await new Promise(resolve => setTimeout(resolve, 150));
-
-  degradedSites.forEach(s => {
-    const siteId = `report-chart-${s.Site.replace(/[^A-Z0-9_-]/g, "-")}`;
-    const rows   = rowsBySite[normalizeSite(s.Site)] || [];
-    if (rows.length) renderReportChart(siteId, rows);
-  });
-  await new Promise(resolve => setTimeout(resolve, 400));
-
-  try{
-    return await html2canvas(container, {
-      backgroundColor:"#ffffff", scale:2,
-      useCORS:true, allowTaint:false, logging:false,
-      windowWidth: container.scrollWidth,
-      windowHeight: container.scrollHeight
-    });
-  } finally { container.remove(); }
-}
-
-safeOn("exportDegradedPdfBtn", "click", async () => {
-  try{
-    const JsPDFCtor =
-      (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF
-      : (typeof window.jsPDF !== "undefined") ? window.jsPDF : null;
-    if(!JsPDFCtor) throw new Error("jsPDF non chargé.");
-
-    const canvas = await generateDegradedReportCanvas();
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf        = new JsPDFCtor({orientation:"portrait",unit:"mm",format:"a4"});
-    const pageWidth  = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin     = 5;
-    const imgWidth   = pageWidth - margin*2;
-    const imgHeight  = (canvas.height * imgWidth) / canvas.width;
-    const usableH    = pageHeight - margin*2;
-
-    let heightLeft = imgHeight, position = margin;
-    pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
-    heightLeft -= usableH;
-    while (heightLeft > 0){
-      position = heightLeft - imgHeight + margin;
-      pdf.addPage();
-      pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
-      heightLeft -= usableH;
-    }
-    pdf.save(`sites-degrades-${new Date().toISOString().slice(0,10)}.pdf`);
-  }catch(e){
-    console.error(e);
-    showMessage("Échec de l'export PDF des sites dégradés : " + e.message);
-  }
-});
-
-safeOn("exportDegradedImgBtn", "click", async () => {
-  try{
-    const canvas = await generateDegradedReportCanvas();
-    const link = document.createElement("a");
-    link.download = `sites-degrades-${new Date().toISOString().slice(0,10)}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  }catch(e){
-    console.error(e);
-    showMessage("Échec de l'export Image des sites dégradés : " + e.message);
-  }
-});
-
-/* =========================================================
-   EXPORT EXCEL DÉGRADÉ — utilise la Vue jour pour l'export
-   ---------------------------------------------------------
-   NOUVEAU v13 : les graphiques exportés dans Excel
-   suivent la même logique que la "Vue jour" :
-   - dtick D1 (une graduation par jour)
-   - Y fixé pour inclure le seuil
-   - ligne de seuil visible
-   - courbe lissée
-   ========================================================= */
-async function generateSiteTrendImage(rows){
-  const sorted = [...rows].sort((a, b) => {
-    const da = makeDateTime(a) || "", db = makeDateTime(b) || "";
-    return da.localeCompare(db);
-  });
-  const x = sorted.map(r => makeDateTime(r));
-  const y = sorted.map(r => Number(r.packet_loss));
-
-  const div = document.createElement("div");
-  div.style.position = "absolute";
-  div.style.left = "-99999px";
-  div.style.top = "0";
-  div.style.width = "900px";
-  div.style.height = "300px";
-  document.body.appendChild(div);
-
-  try{
-    /* Configuration identique à la Vue jour */
-    const xConf = buildXAxisConfigDay(rows, { tickSize: 10 });
-    const yRange = computeFixedYRange(rows);
-
-    await Plotly.newPlot(div, [
-      {
-        x, y, type:"scatter", mode:"lines+markers",
-        line:{ color:"#2563eb", width:2, shape:"spline", smoothing:0.5 },
-        marker:{ color:"#2563eb", size:4 },
-        fill:"tozeroy", fillcolor:"rgba(37,99,235,.08)"
-      },
-      {
-        x, y: x.map(() => THRESHOLD),
-        type:"scatter", mode:"lines",
-        line:{ dash:"dash", color:"#ef4444", width:1.2 }
-      }
-    ], {
-      margin:{ l:50, r:20, t:20, b: 40 + xConf.extraBottom },
-      paper_bgcolor:"#ffffff", plot_bgcolor:"#ffffff",
-      font:{ family:"Arial", size:10, color:"#334155" },
-      showlegend:false,
-      xaxis: xConf.axis,
-      yaxis:{
-        range: yRange,
-        title:{ text:"Packet Loss (%)", font:{ size:10 } }
-      }
-    }, { staticPlot: true, displayModeBar: false });
-
-    await new Promise(r => setTimeout(r, 200));
-
-    return await Plotly.toImage(div, { format:"png", width:900, height:300, scale:2 });
-  } finally { div.remove(); }
-}
-
-safeOn("exportDegradedXlsBtn", "click", async () => {
-  try{
-    const degradedSites = (lastSiteStats || []).filter(s =>
-      Number(s.avg_packet_loss) > THRESHOLD
-    );
-    if (!degradedSites.length) throw new Error("Aucun site dégradé à exporter.");
-
-    const rowsBySite = {};
-    (lastFilteredRows || []).forEach(r => {
-      const site = normalizeSite(r.Site);
-      if (!site) return;
-      (rowsBySite[site] ||= []).push(r);
-    });
-
-    const summaryData = degradedSites.map((s, i) => {
-      const link = getSiteLinkInfo(normalizeSite(s.Site));
-      const deg  = s.degradedDuration || {totalHours:0,longestRun:0};
-      return {
-        "Rang": i + 1, "Site": s.Site, "Vendor": s.vendor, "Lien": link.label,
-        "Perte moyenne (%)": Number(Number(s.avg_packet_loss).toFixed(4)),
-        "Perte max (%)": Number(Number(s.max_packet_loss).toFixed(4)),
-        "Temps dégradé (h)": deg.totalHours,
-        "Plus longue période (h)": deg.longestRun,
-        "Nb mesures": s.nb_mesures,
-        "Nb heures > 0.1%": s.above_threshold,
-        "Statut": s.status
-      };
-    });
-
-    const degradedNames = new Set(degradedSites.map(s => normalizeSite(s.Site)));
-    const detailData = (lastFilteredRows || [])
-      .filter(r => degradedNames.has(normalizeSite(r.Site)))
-      .map(r => ({
-        "Site": normalizeSite(r.Site), "Date": r.ladate, "Heure": r.hour,
-        "Packet Loss (%)": Number(Number(r.packet_loss).toFixed(6)),
-        "Vendor": r.vendor, "RBS": r.rbs
-      }));
-
-    const filename = `sites-degrades-${new Date().toISOString().slice(0,10)}.xlsx`;
-
-    if (typeof window.ExcelJS !== "undefined"){
-      const wb = new window.ExcelJS.Workbook();
-      wb.creator = "Packet Loss Intelligence Dashboard";
-      wb.created = new Date();
-
-      const ws1 = wb.addWorksheet("Sites dégradés", { views:[{ state:"frozen", ySplit:1 }] });
-      ws1.columns = [
-        { header:"Rang", key:"r", width:6 },
-        { header:"Site", key:"s", width:14 },
-        { header:"Vendor", key:"v", width:12 },
-        { header:"Lien", key:"l", width:14 },
-        { header:"Perte moyenne (%)", key:"avg", width:16 },
-        { header:"Perte max (%)", key:"max", width:12 },
-        { header:"Temps dégradé (h)", key:"t", width:16 },
-        { header:"Plus longue période (h)", key:"p", width:20 },
-        { header:"Nb mesures", key:"n", width:12 },
-        { header:"Nb heures > 0.1%", key:"ab", width:16 },
-        { header:"Statut", key:"st", width:12 }
-      ];
-      ws1.getRow(1).font = { bold:true, color:{ argb:"FFFFFFFF" } };
-      ws1.getRow(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFB91C1C" } };
-      ws1.getRow(1).alignment = { vertical:"middle", horizontal:"center" };
-      summaryData.forEach(row => ws1.addRow({
-        r: row["Rang"], s: row["Site"], v: row["Vendor"], l: row["Lien"],
-        avg: row["Perte moyenne (%)"], max: row["Perte max (%)"],
-        t: row["Temps dégradé (h)"], p: row["Plus longue période (h)"],
-        n: row["Nb mesures"], ab: row["Nb heures > 0.1%"], st: row["Statut"]
-      }));
-
-      const ws2 = wb.addWorksheet("Tendances");
-      ws2.columns = [
-        { header:"Site", key:"site", width:14 },
-        { header:"Tendance", key:"tr", width:14 },
-        { header:"Moy. 1ère moitié", key:"h1", width:18 },
-        { header:"Moy. 2ème moitié", key:"h2", width:18 },
-        { header:"Évolution (%)", key:"ev", width:14 },
-        { header:"Temps dégradé (h)", key:"td", width:16 },
-        { header:"Plus longue (h)", key:"pl", width:14 },
-        { header:"Mesures", key:"m", width:10 }
-      ];
-      ws2.getRow(1).font = { bold:true, color:{ argb:"FFFFFFFF" } };
-      ws2.getRow(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FF1E40AF" } };
-      ws2.getRow(1).alignment = { vertical:"middle", horizontal:"center" };
-
-      let currentRow = 2;
-      const CHART_HEIGHT = 16;
-
-      for (let i = 0; i < degradedSites.length; i++){
-        const s = degradedSites[i];
-        const trend = computeSiteTrend(rowsBySite[normalizeSite(s.Site)] || []);
-        const deg   = s.degradedDuration || { totalHours:0, longestRun:0 };
-
-        ws2.addRow({
-          site: s.Site,
-          tr:   trend.trend === "improving" ? "Amélioration"
-                : trend.trend === "degrading" ? "Dégradation" : "Stable",
-          h1: Number(Number(trend.firstAvg).toFixed(4)),
-          h2: Number(Number(trend.secondAvg).toFixed(4)),
-          ev: Number(trend.halfToHalf.toFixed(1)),
-          td: deg.totalHours, pl: deg.longestRun, m: s.nb_mesures
-        });
-
-        try{
-          const rows = rowsBySite[normalizeSite(s.Site)] || [];
-          if (rows.length){
-            const dataUrl = await generateSiteTrendImage(rows);
-            const base64  = dataUrl.split(",")[1];
-            const imgId   = wb.addImage({ base64, extension:"png" });
-            ws2.addImage(imgId, {
-              tl: { col: 8.5, row: currentRow - 1 },
-              ext: { width: 700, height: 260 },
-              editAs: "oneCell"
-            });
-            currentRow += CHART_HEIGHT + 1;
-          }
-        }catch(err){
-          console.warn("Graphique non généré pour", s.Site, err);
-          currentRow += 2;
-        }
-      }
-
-      ws2.eachRow(row => {
-        row.eachCell(cell => {
-          cell.border = {
-            top:{style:"thin",color:{argb:"FFE5E7EB"}},
-            left:{style:"thin",color:{argb:"FFE5E7EB"}},
-            bottom:{style:"thin",color:{argb:"FFE5E7EB"}},
-            right:{style:"thin",color:{argb:"FFE5E7EB"}}
-          };
-        });
-      });
-
-      const ws3 = wb.addWorksheet("Mesures détaillées", { views:[{ state:"frozen", ySplit:1 }] });
-      ws3.columns = [
-        { header:"Site", key:"s", width:14 },
-        { header:"Date", key:"d", width:14 },
-        { header:"Heure", key:"h", width:10 },
-        { header:"Packet Loss (%)", key:"pl", width:16 },
-        { header:"Vendor", key:"v", width:12 },
-        { header:"RBS", key:"r", width:22 }
-      ];
-      ws3.getRow(1).font = { bold:true, color:{ argb:"FFFFFFFF" } };
-      ws3.getRow(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FF334155" } };
-      detailData.forEach(r => ws3.addRow({
-        s: r["Site"], d: r["Date"], h: r["Heure"],
-        pl: r["Packet Loss (%)"], v: r["Vendor"], r: r["RBS"]
-      }));
-
-      const buffer = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url; link.download = filename; link.click();
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    console.warn("ExcelJS non chargé : export Excel sans graphiques.");
-    const wb  = XLSX.utils.book_new();
-    const ws1 = XLSX.utils.json_to_sheet(summaryData);
-
-    const trendsData = degradedSites.map((s) => {
-      const trend = computeSiteTrend(rowsBySite[normalizeSite(s.Site)] || []);
-      const deg   = s.degradedDuration || { totalHours:0, longestRun:0 };
-      return {
-        "Site": s.Site,
-        "Tendance": trend.trend === "improving" ? "Amélioration"
-                  : trend.trend === "degrading" ? "Dégradation" : "Stable",
-        "Moy. 1ère moitié": Number(Number(trend.firstAvg).toFixed(4)),
-        "Moy. 2ème moitié": Number(Number(trend.secondAvg).toFixed(4)),
-        "Évolution (%)": Number(trend.halfToHalf.toFixed(1)),
-        "Temps dégradé (h)": deg.totalHours,
-        "Plus longue (h)": deg.longestRun,
-        "Mesures": s.nb_mesures
-      };
-    });
-    const ws2 = XLSX.utils.json_to_sheet(trendsData);
-    const ws3 = XLSX.utils.json_to_sheet(detailData);
-
-    ws1["!cols"] = [{wch:6},{wch:14},{wch:12},{wch:14},{wch:16},{wch:12},{wch:16},{wch:20},{wch:12},{wch:16},{wch:12}];
-    ws2["!cols"] = [{wch:14},{wch:14},{wch:18},{wch:18},{wch:14},{wch:16},{wch:14},{wch:10}];
-    ws3["!cols"] = [{wch:14},{wch:14},{wch:10},{wch:16},{wch:12},{wch:22}];
-
-    XLSX.utils.book_append_sheet(wb, ws1, "Sites dégradés");
-    XLSX.utils.book_append_sheet(wb, ws2, "Tendances");
-    XLSX.utils.book_append_sheet(wb, ws3, "Mesures détaillées");
-    XLSX.writeFile(wb, filename);
-
-  }catch(e){
-    console.error(e);
-    showMessage("Échec de l'export Excel : " + e.message);
-  }
-});
-
-/* =========================================================
    RESET
    ========================================================= */
 safeOn("resetBtn", "click", ()=>{
@@ -2663,7 +1918,6 @@ safeOn("resetBtn", "click", ()=>{
   const trendFilter = $("trendFilter"); if(trendFilter) trendFilter.value = "all";
   const siteSearch = $("siteSearch"); if(siteSearch) siteSearch.value = "";
 
-  /* Reset de la vue graphique sur "day" (comportement par défaut) */
   chartViewMode = "day";
   const toggle = $("viewToggle");
   if(toggle){
@@ -2722,6 +1976,9 @@ safeOn("resetBtn", "click", ()=>{
   const mapLayout = $("mapLayout"); if(mapLayout) mapLayout.classList.remove("is-collapsed");
   const float = $("hubPanelToggleFloat"); if(float) float.classList.add("hidden");
 
+  const covEl = $("kCoverage"); if(covEl) covEl.textContent = "0%";
+  const covBar = $("kCoverageBar"); if(covBar) covBar.style.width = "0%";
+
   lastResult       = null;
   lastFilteredRows = [];
   lastSiteStats    = [];
@@ -2754,12 +2011,11 @@ async function init(){
   safeOn("periodPreset", "change", e => setPeriod(e.target.value));
   safeOn("analyzeBtn",   "click",  runAnalysis);
 
-  /* NOUVEAU v13 : branchement du sélecteur de vue */
   bindViewToggle();
 
   await Promise.all([loadLocations(), loadNetworkLinks()]);
 
-  console.log("🚀 Dashboard initialisé. Période par défaut : 7 jours. v13 : modes jour/brut + Excel cohérent.");
+  console.log("🚀 Dashboard v17 initialisé (sans export PDF/Image/Excel).");
 }
 
 if(document.readyState === "loading"){
