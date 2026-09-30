@@ -4,27 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="assets/images/favicon.ico">
-<title>Packet Loss Intelligence Dashboard</title>
+<title>Packet Loss Intelligence</title>
 <link rel="stylesheet" href="assets/css/font-awesome.min.css">
 <link rel="stylesheet" href="assets/css/dashboard.css">
 <link rel="stylesheet" href="assets/css/leaflet.css">
 </head>
 <body>
 
+<!-- ============================================================
+     TOPBAR / HERO
+     ============================================================ -->
 <header class="topbar">
+  <div class="topbar__glow"></div>
   <div class="topbar__inner">
     <div class="brand">
-      <div class="brand__eyebrow">
-        <i class="fa-solid fa-circle-nodes"></i>
-        <span>REPORTING</span>
-      </div>
       <div class="brand__logo">
         <img src="assets/images/logo1.png" alt="NPM" class="brand__logo-img">
       </div>
-    </div>
-    <div class="topbar__title">
-      <h1><i class="fa-solid fa-satellite-dish"></i> Packet Loss <span>Intelligence</span></h1>
-      <p>Analyse réseau avancée • Seuil critique <strong>0.1%</strong></p>
+      <div class="brand__name">
+        <h1>Packet Loss <span>Intelligence</span></h1>
+        <p>Analyse réseau avancée <em>•</em> Seuil critique <strong>0.1%</strong></p>
+      </div>
     </div>
     <div class="topbar__status" id="apiStatusWrap">
       <span class="status-dot"></span>
@@ -35,189 +35,376 @@
 
 <main class="container">
 
-  <section class="panel panel--form">
-    <header class="panel__head">
-      <div class="panel__head-left">
-        <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-sliders"></i></div>
+  <!-- ============================================================
+       CONFIGURATION
+       ============================================================ -->
+  <section class="config-section">
+    <div class="config-section__orb config-section__orb--1"></div>
+    <div class="config-section__orb config-section__orb--2"></div>
+
+    <header class="section-head">
+      <div class="section-head__left">
+        <div class="section-icon"><i class="fa-solid fa-sliders"></i></div>
         <div>
-          <h2 class="panel__title">Configuration de l'analyse</h2>
-          <p class="panel__subtitle">Définissez le périmètre : sites, période et vendor.</p>
+          <h2>Configuration de l'analyse</h2>
+          <p>Définissez le périmètre : fichiers, période et vendor.</p>
         </div>
       </div>
-      <span class="pill pill--warning"><i class="fa-solid fa-gauge-high"></i> Seuil 0.1%</span>
+      <span class="pill pill--warning">
+        <i class="fa-solid fa-gauge-high"></i> Seuil 0.1%
+      </span>
     </header>
 
-    <div class="form-row form-row--imports">
-      <div class="field field--file">
-        <label for="sitesFile" class="field__label"><i class="fa-solid fa-file-lines"></i> Fichier TXT</label>
-        <div class="file-input"><input id="sitesFile" type="file" accept=".txt,.csv"></div>
-        <small id="sitesFileName" class="field__hint">Aucun fichier sélectionné</small>
-      </div>
-      <div class="field field--grow">
-        <label for="sitesPaste" class="field__label"><i class="fa-solid fa-keyboard"></i> Sites à analyser</label>
-        <textarea id="sitesPaste" rows="3" placeholder="AC078 AC155 ET010 IM024"></textarea>
-        <small class="field__hint">Séparez par espace, virgule, ; ou retour à la ligne</small>
-      </div>
-      <div class="field field--file">
-        <label for="excelFile" class="field__label"><i class="fa-solid fa-file-excel"></i> Fichier Excel</label>
-        <div class="file-input"><input id="excelFile" type="file" accept=".xlsx,.xls"></div>
-        <small class="field__hint">Colonne "Site" du 1er onglet</small>
-      </div>
+    <div class="config-grid">
+
+      <!-- CARTE 1 — SOURCES -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--blue"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--blue">
+            <i class="fa-solid fa-folder-open"></i>
+          </div>
+          <div>
+            <span class="config-card__step">Étape 01</span>
+            <h3>Sources des données</h3>
+            <p>Sélectionnez les fichiers nécessaires.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+
+          <div class="field">
+            <label for="sitesFile" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-file-lines"></i></span>
+              Fichier TXT
+              <span class="field__help" title="Le fichier TXT contient la liste des sites à analyser.">?</span>
+            </label>
+            <div class="file-input">
+              <input id="sitesFile" type="file" accept=".txt,.csv">
+            </div>
+            <small id="sitesFileName" class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Aucun fichier sélectionné
+            </small>
+          </div>
+
+          <div class="field">
+            <label for="sitesPaste" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-location-dot"></i></span>
+              Sites à analyser
+            </label>
+            <textarea id="sitesPaste" rows="3" placeholder="AC078 AC155 ET010 IM024"></textarea>
+            <small class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Séparez par espace, virgule, ; ou retour à la ligne
+            </small>
+          </div>
+
+          <div class="field">
+            <label for="excelFile" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-file-excel"></i></span>
+              Fichier Excel
+              <span class="field__help" title="Le fichier Excel doit contenir une colonne 'Site' dans le premier onglet.">?</span>
+            </label>
+            <div class="file-input">
+              <input id="excelFile" type="file" accept=".xlsx,.xls">
+            </div>
+            <small class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Colonne "Site" du 1er onglet
+            </small>
+          </div>
+
+        </div>
+      </article>
+
+      <!-- CARTE 2 — PÉRIODE -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--violet"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--violet">
+            <i class="fa-regular fa-calendar"></i>
+          </div>
+          <div>
+            <span class="config-card__step">Étape 02</span>
+            <h3>Période d'analyse</h3>
+            <p>Définissez la fenêtre temporelle.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+
+          <div class="field">
+            <label for="periodPreset" class="field__label">
+              <span class="field__label-icon"><i class="fa-regular fa-calendar-days"></i></span>
+              Période
+            </label>
+            <select id="periodPreset">
+              <option value="7">7 derniers jours</option>
+              <option value="14">14 derniers jours</option>
+              <option value="30">30 derniers jours</option>
+              <option value="CUSTOM">Personnalisée</option>
+            </select>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="startDate" class="field__label">Début</label>
+              <input type="date" id="startDate">
+            </div>
+            <div class="field">
+              <label for="endDate" class="field__label">Fin</label>
+              <input type="date" id="endDate">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="hourRange" class="field__label">
+              <span class="field__label-icon"><i class="fa-regular fa-clock"></i></span>
+              Plage horaire
+            </label>
+            <select id="hourRange">
+              <option value="all">Toute la journée</option>
+              <option value="00-06">Nuit (00h - 06h)</option>
+              <option value="06-12">Matin (06h - 12h)</option>
+              <option value="12-18">Après-midi (12h - 18h)</option>
+              <option value="18-24">Soir (18h - 24h)</option>
+            </select>
+          </div>
+
+        </div>
+      </article>
+
+      <!-- CARTE 3 — RÉSEAU -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--green"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--green">
+            <i class="fa-solid fa-tower-broadcast"></i>
+          </div>
+          <div>
+            <span class="config-card__step">Étape 03</span>
+            <h3>Paramètres réseau</h3>
+            <p>Constructeur et seuil de tolérance.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+
+          <div class="field">
+            <label for="vendor" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-industry"></i></span>
+              Vendor
+            </label>
+            <select id="vendor">
+              <option value="ALL">Tous les vendors</option>
+              <option value="ERICSSON">Ericsson</option>
+              <option value="HUAWEI">Huawei</option>
+            </select>
+          </div>
+
+          <div class="threshold-box">
+            <div class="threshold-box__glow"></div>
+            <div class="threshold-box__head">
+              <i class="fa-solid fa-gauge-high"></i>
+              <span>Seuil Packet Loss</span>
+            </div>
+            <div class="threshold-box__value">
+              <strong>0.10</strong><span>%</span>
+            </div>
+            <p class="threshold-box__hint">
+              Les valeurs supérieures à ce seuil sont considérées comme problématiques.
+            </p>
+          </div>
+
+        </div>
+      </article>
+
     </div>
 
-    <div class="form-row form-row--filters">
-      <div class="field">
-        <label for="periodPreset" class="field__label"><i class="fa-regular fa-calendar"></i> Période</label>
-        <select id="periodPreset">
-          <option value="7">7 derniers jours</option>
-          <option value="14">14 derniers jours</option>
-          <option value="30">30 derniers jours</option>
-          <option value="CUSTOM">Personnalisée</option>
-        </select>
-      </div>
-      <div class="field"><label for="startDate" class="field__label">Début</label><input type="date" id="startDate"></div>
-      <div class="field"><label for="endDate" class="field__label">Fin</label><input type="date" id="endDate"></div>
-      <div class="field">
-        <label for="hourRange" class="field__label"><i class="fa-regular fa-clock"></i> Plage horaire</label>
-        <select id="hourRange">
-          <option value="all">Toute la journée</option>
-          <option value="00-06">Nuit (00h - 06h)</option>
-          <option value="06-12">Matin (06h - 12h)</option>
-          <option value="12-18">Après-midi (12h - 18h)</option>
-          <option value="18-24">Soir (18h - 24h)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="vendor" class="field__label"><i class="fa-solid fa-tower-broadcast"></i> Vendor</label>
-        <select id="vendor">
-          <option value="ALL">Tous</option>
-          <option value="ERICSSON">Ericsson</option>
-          <option value="HUAWEI">Huawei</option>
-        </select>
-      </div>
-      <div class="field field--actions">
-        <button id="analyzeBtn" class="btn btn--primary"><i class="fa-solid fa-bolt"></i><span>Analyser</span></button>
-        <button id="resetBtn" class="btn btn--ghost" title="Réinitialiser"><i class="fa-solid fa-rotate-left"></i></button>
-      </div>
+    <div class="action-bar">
+      <button id="analyzeBtn" class="btn btn--primary btn--lg">
+        <i class="fa-solid fa-bolt"></i>
+        <span>Lancer l'analyse</span>
+        <span class="btn__shine"></span>
+      </button>
+      <button id="resetBtn" class="btn btn--ghost btn--lg">
+        <i class="fa-solid fa-rotate-left"></i>
+        <span>Réinitialiser</span>
+      </button>
     </div>
 
     <div id="requestInfo" class="alert alert--info hidden"></div>
     <div id="message" class="alert alert--warning hidden"></div>
   </section>
 
+  <!-- ============================================================
+       DASHBOARD
+       ============================================================ -->
   <section id="dashboard" class="hidden">
 
-    <div class="export-bar" id="exportBar">
-      <div class="export-bar__left"><i class="fa-solid fa-file-export"></i><span>Exporter le rapport complet</span></div>
-      <div class="export-bar__actions">
-        <button id="exportPdfBtn" class="btn btn--primary btn--sm"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-        <button id="exportImgBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-image"></i> Image</button>
-      </div>
-    </div>
+    <!-- DEUX BLOCS : WORST | RÉSUMÉ -->
+    <section class="two-col">
 
-    <div class="export-bar export-bar--degraded" id="degradedExportBar">
-      <div class="export-bar__left">
-        <i class="fa-solid fa-triangle-exclamation"></i>
-        <span>Rapport des sites dégradés</span>
-        <span class="badge-count" id="degradedCount">0</span>
-      </div>
-      <div class="export-bar__actions">
-        <button id="exportDegradedPdfBtn" class="btn btn--primary btn--sm"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-        <button id="exportDegradedImgBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-image"></i> Image</button>
-        <button id="exportDegradedXlsBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-file-excel"></i> Excel</button>
-      </div>
-    </div>
+      <article class="panel panel--worst">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--red">
+              <i class="fa-solid fa-ranking-star"></i>
+            </div>
+            <div>
+              <h2 class="panel__title">Worst Packet Loss Sites</h2>
+              <p class="panel__subtitle">Top 10 des sites les plus dégradés.</p>
+            </div>
+          </div>
+          <span class="panel__badge panel__badge--red">Top 10</span>
+        </header>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Rang</th><th>Site</th><th>Vendor</th><th>Lien</th>
+                <th class="num">Packet Loss</th><th class="num">Max</th>
+                <th class="num">Temps dégradé</th><th class="num">&gt; 0.1%</th><th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="worstTableBody"></tbody>
+          </table>
+        </div>
+      </article>
 
-    <!-- ============================================================
-         KPI — 8 CARTES
-         Demandés / Avec données / Impactés / Sans données
-         Dégradés / Stables / Améliorés / Max PL
-         ============================================================ -->
-    <div class="kpi-grid kpi-grid--8">
-      <article class="kpi" data-color="blue" title="Nombre total de sites demandés">
-        <div class="kpi__icon"><i class="fa-solid fa-list-check"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Sites demandés</span>
-          <strong class="kpi__value" id="kSitesRequested">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="green" title="Sites pour lesquels des données ont été trouvées">
-        <div class="kpi__icon"><i class="fa-solid fa-database"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Sites avec données</span>
-          <strong class="kpi__value" id="kSitesData">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="orange" title="Sites dont la moyenne dépasse le seuil de 0.1%">
-        <div class="kpi__icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Sites impactés</span>
-          <strong class="kpi__value" id="kImpacted">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="red" title="Sites demandés sans aucune mesure">
-        <div class="kpi__icon"><i class="fa-solid fa-circle-xmark"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Sites sans données</span>
-          <strong class="kpi__value" id="kNoDataKpi">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="red" title="Sites dont la perte augmente (2ème moitié > 1ère moitié)">
-        <div class="kpi__icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Dégradés</span>
-          <strong class="kpi__value" id="kDegrading">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="violet" title="Sites dont la perte est restée stable">
-        <div class="kpi__icon"><i class="fa-solid fa-minus"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Stables</span>
-          <strong class="kpi__value" id="kStable">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="green" title="Sites dont la perte diminue (2ème moitié < 1ère moitié)">
-        <div class="kpi__icon"><i class="fa-solid fa-arrow-trend-down"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Améliorés</span>
-          <strong class="kpi__value" id="kImproving">0</strong>
-        </div>
-      </article>
-      <article class="kpi" data-color="blue" title="Valeur maximale de Packet Loss observée">
-        <div class="kpi__icon"><i class="fa-solid fa-chart-line"></i></div>
-        <div class="kpi__body">
-          <span class="kpi__label">Max Packet Loss</span>
-          <strong class="kpi__value" id="kMax">0.0000%</strong>
-        </div>
-      </article>
-    </div>
+      <article class="panel panel--resume">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--blue">
+              <i class="fa-solid fa-chart-pie"></i>
+            </div>
+            <div>
+              <h2 class="panel__title">Résumé de l'analyse</h2>
+              <p class="panel__subtitle">Vue d'ensemble de la couverture.</p>
+            </div>
+          </div>
+        </header>
 
-    <div class="summary">
-      <div class="summary__item"><i class="fa-solid fa-ruler"></i><span>Mesures</span><strong id="kRows">0</strong></div>
-      <div class="summary__item"><i class="fa-solid fa-chart-line"></i><span>Moyenne globale</span><strong id="kAvg">0.0000%</strong></div>
-      <div class="summary__item"><i class="fa-solid fa-gauge-high"></i><span>Seuil</span><strong>0.1%</strong></div>
-      <div class="summary__item"><i class="fa-solid fa-tower-broadcast"></i><span>Vendor</span><strong id="summaryVendor">Tous</strong></div>
-      <div class="summary__item"><i class="fa-regular fa-clock"></i><span>Plage</span><strong id="summaryHourRange">Toute la journée</strong></div>
-      <div class="summary__item"><i class="fa-regular fa-calendar"></i><span>Période</span><strong id="summaryPeriod">-</strong></div>
-    </div>
+        <div class="resume-grid">
+          <div class="resume-item resume-item--blue">
+            <div class="resume-item__icon"><i class="fa-solid fa-list-check"></i></div>
+            <div class="resume-item__body">
+              <span class="resume-item__label">Sites demandés</span>
+              <strong class="resume-item__value" id="kSitesRequested">0</strong>
+            </div>
+          </div>
+          <div class="resume-item resume-item--green">
+            <div class="resume-item__icon"><i class="fa-solid fa-database"></i></div>
+            <div class="resume-item__body">
+              <span class="resume-item__label">Avec données</span>
+              <strong class="resume-item__value" id="kSitesData">0</strong>
+            </div>
+          </div>
+          <div class="resume-item resume-item--red">
+            <div class="resume-item__icon"><i class="fa-solid fa-circle-xmark"></i></div>
+            <div class="resume-item__body">
+              <span class="resume-item__label">Sans données</span>
+              <strong class="resume-item__value" id="kNoDataKpi">0</strong>
+            </div>
+          </div>
+          <div class="resume-item resume-item--violet resume-item--accent">
+            <div class="resume-item__icon"><i class="fa-solid fa-percent"></i></div>
+            <div class="resume-item__body">
+              <span class="resume-item__label">Taux de couverture</span>
+              <strong class="resume-item__value" id="kCoverage">0%</strong>
+            </div>
+            <div class="resume-progress">
+              <div class="resume-progress__fill" id="kCoverageBar" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
 
+        <div class="resume-secondary">
+          <div class="mini-kpi mini-kpi--orange" title="Sites dont la moyenne dépasse le seuil">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>Impactés</span>
+            <strong id="kImpacted">0</strong>
+          </div>
+          <div class="mini-kpi mini-kpi--red" title="Sites dont la perte augmente">
+            <i class="fa-solid fa-arrow-trend-up"></i>
+            <span>Dégradés</span>
+            <strong id="kDegrading">0</strong>
+          </div>
+          <div class="mini-kpi mini-kpi--gray" title="Sites stables">
+            <i class="fa-solid fa-minus"></i>
+            <span>Stables</span>
+            <strong id="kStable">0</strong>
+          </div>
+          <div class="mini-kpi mini-kpi--green" title="Sites en amélioration">
+            <i class="fa-solid fa-arrow-trend-down"></i>
+            <span>Améliorés</span>
+            <strong id="kImproving">0</strong>
+          </div>
+          <div class="mini-kpi mini-kpi--blue" title="Valeur maximale observée">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Max PL</span>
+            <strong id="kMax">0.0000%</strong>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div class="summary__item">
+            <i class="fa-solid fa-ruler"></i>
+            <span>Mesures</span>
+            <strong id="kRows">0</strong>
+          </div>
+          <div class="summary__item">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Moyenne</span>
+            <strong id="kAvg">0.0000%</strong>
+          </div>
+          <div class="summary__item">
+            <i class="fa-solid fa-gauge-high"></i>
+            <span>Seuil</span>
+            <strong>0.1%</strong>
+          </div>
+          <div class="summary__item">
+            <i class="fa-solid fa-tower-broadcast"></i>
+            <span>Vendor</span>
+            <strong id="summaryVendor">Tous</strong>
+          </div>
+          <div class="summary__item">
+            <i class="fa-regular fa-clock"></i>
+            <span>Plage</span>
+            <strong id="summaryHourRange">Toute la journée</strong>
+          </div>
+          <div class="summary__item">
+            <i class="fa-regular fa-calendar"></i>
+            <span>Période</span>
+            <strong id="summaryPeriod">-</strong>
+          </div>
+        </div>
+      </article>
+
+    </section>
+
+    <span id="kNoData" class="hidden"></span>
+
+    <!-- Sites sans données -->
     <section id="noDataPanel" class="panel panel--no-data hidden">
       <header class="panel__head">
         <div class="panel__head-left">
-          <div class="panel__icon panel__icon--orange"><i class="fa-solid fa-circle-exclamation"></i></div>
+          <div class="panel__icon panel__icon--orange">
+            <i class="fa-solid fa-circle-exclamation"></i>
+          </div>
           <div>
             <h2 class="panel__title">Sites sans données</h2>
-            <p class="panel__subtitle"><strong id="noDataCount">0</strong> site(s) demandé(s) sans mesure sur cette période.</p>
+            <p class="panel__subtitle">
+              <strong id="noDataCount">0</strong> site(s) demandé(s) sans mesure sur cette période.
+            </p>
           </div>
         </div>
       </header>
       <div id="noDataList" class="no-data-list"></div>
     </section>
 
+    <!-- Graphique global -->
     <section class="panel">
       <header class="panel__head">
         <div class="panel__head-left">
-          <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-wave-square"></i></div>
+          <div class="panel__icon panel__icon--blue">
+            <i class="fa-solid fa-wave-square"></i>
+          </div>
           <div>
             <h2 class="panel__title">Évolution globale du Packet Loss</h2>
             <p class="panel__subtitle">Moyenne horaire, tous sites confondus. Ligne rouge = seuil 0.1%.</p>
@@ -227,37 +414,16 @@
       <div id="globalChart" class="chart chart--global"></div>
     </section>
 
-    <section class="panel">
-      <header class="panel__head">
-        <div class="panel__head-left">
-          <div class="panel__icon panel__icon--red"><i class="fa-solid fa-ranking-star"></i></div>
-          <div>
-            <h2 class="panel__title">Worst Packet Loss Sites</h2>
-            <p class="panel__subtitle">Top 10 des sites les plus dégradés par moyenne décroissante.</p>
-          </div>
-        </div>
-      </header>
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Rang</th><th>Site</th><th>Vendor</th><th>Lien</th>
-              <th class="num">Packet Loss</th><th class="num">Max</th>
-              <th class="num">Temps dégradé</th><th class="num">&gt; 0.1%</th><th>Statut</th>
-            </tr>
-          </thead>
-          <tbody id="worstTableBody"></tbody>
-        </table>
-      </div>
-    </section>
-
+    <!-- Carte réseau -->
     <section class="panel panel--map" id="mapPanel">
       <header class="panel__head">
         <div class="panel__head-left">
-          <div class="panel__icon panel__icon--green"><i class="fa-solid fa-map-location-dot"></i></div>
+          <div class="panel__icon panel__icon--green">
+            <i class="fa-solid fa-map-location-dot"></i>
+          </div>
           <div>
             <h2 class="panel__title">Carte réseau et identification des HUBs</h2>
-            <p class="panel__subtitle">Cliquez sur un HUB pour voir uniquement ses sites et liens associés.</p>
+            <p class="panel__subtitle">Cliquez sur un site pour isoler ses liaisons directes.</p>
           </div>
         </div>
 
@@ -282,7 +448,6 @@
               </select>
             </div>
           </div>
-
           <div class="map-legend">
             <span><i class="dot dot--huawei"></i>Huawei</span>
             <span><i class="dot dot--ericsson"></i>Ericsson</span>
@@ -303,15 +468,13 @@
         <label class="chk chk--hub"><input type="checkbox" id="toggleHubs"><span>Vue HUB uniquement</span></label>
       </div>
 
-      <!-- Bouton flottant : réafficher le panneau HUB quand replié -->
       <button id="hubPanelToggleFloat" class="hub-panel-toggle-float hidden" title="Afficher les HUBs">
         <i class="fa-solid fa-hubspot"></i><span>HUBs</span>
       </button>
 
-      <!-- NOUVEAU : bouton flottant pour réinitialiser la vue carte -->
       <button id="mapResetFloatBtn" class="map-reset-float hidden" title="Afficher tous les sites">
         <i class="fa-solid fa-rotate-left"></i>
-        <span>Afficher tous les sites</span>
+        <span>Tous les sites</span>
       </button>
 
       <div class="map-layout" id="mapLayout">
@@ -341,21 +504,22 @@
           </div>
         </aside>
       </div>
-
       <div id="mapInfo" class="map-info">Chargement du référentiel...</div>
     </section>
 
+    <!-- Analyse détaillée par site -->
     <section class="panel">
       <header class="panel__head panel__head--toolbar">
         <div class="panel__head-left">
-          <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-chart-simple"></i></div>
+          <div class="panel__icon panel__icon--violet">
+            <i class="fa-solid fa-chart-simple"></i>
+          </div>
           <div>
             <h2 class="panel__title">Analyse détaillée par site</h2>
             <p class="panel__subtitle">Un graphique par site avec sa tendance et ses statistiques.</p>
           </div>
         </div>
         <div class="site-filters">
-          <!-- NOUVEAU : sélecteur de mode de vue des graphiques -->
           <div class="view-toggle" id="viewToggle">
             <button type="button" class="view-toggle__btn is-active" data-view="day" title="Une graduation par jour (recommandé)">
               <i class="fa-solid fa-calendar-day"></i> Vue jour
@@ -364,7 +528,6 @@
               <i class="fa-solid fa-clock"></i> Vue brute
             </button>
           </div>
-
           <div class="search-input">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input id="siteSearch" type="search" placeholder="Rechercher un site...">
@@ -386,23 +549,44 @@
       </header>
       <div id="siteGrid" class="site-grid"></div>
     </section>
+
   </section>
 
+  <!-- ÉTAT VIDE -->
   <section id="emptyState" class="empty">
-    <div class="empty__icon"><i class="fa-solid fa-satellite-dish"></i></div>
+    <div class="empty__orbit">
+      <div class="empty__satellite">
+        <i class="fa-solid fa-satellite-dish"></i>
+      </div>
+      <div class="empty__ring empty__ring--1"></div>
+      <div class="empty__ring empty__ring--2"></div>
+    </div>
     <h2 class="empty__title">Aucune analyse en cours</h2>
-    <p class="empty__text">Importez ou collez vos sites, puis cliquez sur <strong>Analyser</strong> pour démarrer.</p>
+    <p class="empty__text">
+      Importez ou collez vos sites, puis cliquez sur <strong>Lancer l'analyse</strong> pour démarrer.
+    </p>
+    <div class="empty__hints">
+      <div class="empty__hint">
+        <i class="fa-solid fa-file-lines"></i>
+        <span>1. Importez vos sites</span>
+      </div>
+      <div class="empty__hint">
+        <i class="fa-regular fa-calendar"></i>
+        <span>2. Choisissez la période</span>
+      </div>
+      <div class="empty__hint">
+        <i class="fa-solid fa-bolt"></i>
+        <span>3. Lancez l'analyse</span>
+      </div>
+    </div>
   </section>
 
 </main>
 
 <script src="assets/js/purify.min.js"></script>
 <script src="assets/js/xlsx.full.min.js"></script>
-<script src="assets/js/exceljs.min.js"></script>
 <script src="assets/js/plotly.min.js"></script>
 <script src="assets/js/leaflet.js"></script>
-<script src="assets/js/html2canvas.min.js"></script>
-<script src="assets/js/jspdf.umd.min.js"></script>
 <script src="assets/js/dashboard.js"></script>
 </body>
 </html>
