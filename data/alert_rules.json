@@ -1,0 +1,8 @@
+{
+    "email": "noc@example.com",
+    "min_hours": 3,
+    "frequency": "hourly",
+    "sites": ["AC078", "AC155", "ET010"],
+    "enabled": true,
+    "updated_at": "2026-10-01T08:00:00+00:00"
+}
