@@ -1,0 +1,540 @@
+/* =========================================================
+   HOME / MENU — Design System v2
+   ---------------------------------------------------------
+   - Grille pays sur 5 colonnes (desktop)
+   - Cartes compactes avec images PNG
+   - Footer collé en bas de page
+   - Thème clair / sombre
+   ========================================================= */
+
+/* =========================================================
+   1. DESIGN TOKENS — Cohérents avec le dashboard
+   ========================================================= */
+:root{
+  --c-primary:      #4f46e5;
+  --c-primary-600:  #4338ca;
+  --c-primary-700:  #3730a3;
+  --c-primary-50:   #eef2ff;
+  --c-primary-100:  #e0e7ff;
+  --c-success:      #10b981;
+  --c-success-50:   #ecfdf5;
+  --c-success-700:  #047857;
+  --c-danger:       #f43f5e;
+  --c-danger-50:    #fff1f2;
+  --c-danger-700:   #be123c;
+  --c-violet:       #8b5cf6;
+  --c-violet-50:    #f5f3ff;
+  --c-violet-700:   #6d28d9;
+  --c-orange:       #f97316;
+  --c-orange-50:    #fff7ed;
+  --c-orange-700:   #c2410c;
+  --c-sky:          #0ea5e9;
+  --c-sky-50:       #f0f9ff;
+  --c-sky-700:      #0369a1;
+
+  --c-bg:           #f5f7fb;
+  --c-surface:      #ffffff;
+  --c-surface-2:    #f8fafc;
+  --c-border:       #e5e7eb;
+  --c-border-strong:#cbd5e1;
+  --c-text:         #0f172a;
+  --c-text-2:       #334155;
+  --c-text-muted:   #64748b;
+  --c-text-faint:   #94a3b8;
+
+  --shadow-sm: 0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  --shadow-md: 0 4px 6px -1px rgba(15,23,42,.06), 0 2px 4px -2px rgba(15,23,42,.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15,23,42,.08), 0 4px 6px -4px rgba(15,23,42,.05);
+  --shadow-xl: 0 20px 25px -5px rgba(15,23,42,.10), 0 8px 10px -6px rgba(15,23,42,.06);
+
+  --t-fast: 150ms cubic-bezier(.4,0,.2,1);
+  --t-base: 220ms cubic-bezier(.4,0,.2,1);
+  --t-slow: 400ms cubic-bezier(.16,1,.3,1);
+}
+
+[data-theme="dark"]{
+  --c-bg:           #0a1020;
+  --c-surface:      #131c2e;
+  --c-surface-2:    #1a2438;
+  --c-border:       #2a3754;
+  --c-border-strong:#3b4a6b;
+  --c-text:         #f8fafc;
+  --c-text-2:       #cbd5e1;
+  --c-text-muted:   #94a3b8;
+  --c-text-faint:   #64748b;
+  --c-primary-50:   #1e1b4b;
+  --c-primary-100:  #312e81;
+  --c-success-50:   #052e1a;
+  --c-success-700:  #34d399;
+  --c-danger-50:    #3b0e1e;
+  --c-danger-700:   #fb7185;
+  --c-violet-50:    #241a4a;
+  --c-violet-700:   #a78bfa;
+  --c-orange-50:    #3b1f05;
+  --c-orange-700:   #fb923c;
+  --c-sky-50:       #07283d;
+  --c-sky-700:      #38bdf8;
+}
+
+/* =========================================================
+   2. RESET & BASE — Body en flex column pour footer collé en bas
+   ========================================================= */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body.home-page{
+  margin:0;
+  font-family:'Inter','Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Arial,sans-serif;
+  font-size:14px;line-height:1.5;
+  color:var(--c-text);background:var(--c-bg);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  -webkit-font-smoothing:antialiased;
+  transition:background 250ms ease, color 250ms ease;
+}
+button{cursor:pointer;border:0;background:none;padding:0;font:inherit;color:inherit}
+a{color:var(--c-primary);text-decoration:none}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--c-border-strong);border-radius:8px;border:2px solid var(--c-bg);}
+
+@keyframes fadeInUp{
+  from{opacity:0;transform:translateY(12px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.55)}
+  50%{box-shadow:0 0 0 6px rgba(16,185,129,0)}
+}
+
+/* =========================================================
+   3. TOPBAR
+   ========================================================= */
+.home-topbar{
+  position:sticky;top:0;z-index:100;
+  background:linear-gradient(135deg,#0b1220 0%,#1e1b4b 50%,#312e81 100%);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  box-shadow:0 4px 20px rgba(15,23,42,.20);
+}
+.home-topbar::after{
+  content:'';display:block;height:2px;
+  background:linear-gradient(90deg,#06b6d4 0%,#8b5cf6 50%,#f97316 100%);
+  opacity:.8;
+}
+.home-topbar__inner{
+  max-width:1400px;margin:0 auto;padding:14px 28px;
+  display:flex;align-items:center;gap:20px;
+}
+.home-brand{
+  display:flex;align-items:center;gap:12px;
+  padding-right:20px;
+  border-right:1px solid rgba(255,255,255,.12);
+  flex-shrink:0;
+  margin-right:auto;
+}
+.home-brand--compact{padding-right:0;border:0;}
+.home-brand__logo{
+  background:#fff;padding:5px 10px;border-radius:9px;
+  box-shadow:0 4px 12px rgba(0,0,0,.25);
+}
+.home-brand__logo-img{display:block;max-height:26px;width:auto;}
+.home-brand__name{color:#fff;}
+.home-brand__name h1{
+  margin:0;font-size:17px;font-weight:800;
+  letter-spacing:-.02em;display:flex;align-items:baseline;gap:5px;
+}
+.home-brand__name h1 span{font-weight:400;opacity:.75;}
+.home-brand__name p{
+  margin:2px 0 0;font-size:11px;opacity:.65;font-weight:500;
+}
+.home-topbar__actions{display:flex;align-items:center;gap:6px;}
+
+.home-action{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 11px;border-radius:8px;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.14);
+  color:#fff;font-size:12px;font-weight:700;
+  cursor:pointer;transition:all 150ms ease;
+  white-space:nowrap;
+}
+.home-action:hover{
+  background:rgba(255,255,255,.18);
+  transform:translateY(-1px);
+}
+.home-action--with-label{padding:7px 14px;}
+.home-action i{font-size:12px;}
+
+/* =========================================================
+   4. HERO
+   ========================================================= */
+.home-hero{
+  max-width:1400px;margin:0 auto;
+  padding:44px 28px 24px;
+  text-align:center;
+}
+.home-hero__content{max-width:720px;margin:0 auto;}
+.home-hero__eyebrow{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:7px 16px;border-radius:999px;
+  background:linear-gradient(135deg,var(--c-primary-50),var(--c-primary-100));
+  color:var(--c-primary);
+  font-size:11.5px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;
+  margin-bottom:16px;
+  animation:fadeInUp .4s ease both;
+}
+.home-hero__eyebrow i{font-size:11px;}
+.home-hero__title{
+  margin:0 0 12px;
+  font-size:36px;font-weight:900;
+  letter-spacing:-.03em;line-height:1.1;
+  color:var(--c-text);
+  animation:fadeInUp .5s ease both;
+}
+.home-hero__title span{
+  background:linear-gradient(135deg,#4f46e5,#06b6d4);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.home-hero__subtitle{
+  margin:0 auto;font-size:14.5px;
+  color:var(--c-text-muted);
+  font-weight:500;line-height:1.6;
+  max-width:560px;
+  animation:fadeInUp .6s ease both;
+}
+
+/* =========================================================
+   5. CONTAINER — Flex pour pousser le footer en bas
+   ========================================================= */
+.home-container{
+  max-width:1400px;margin:0 auto;
+  padding:16px 28px 32px;
+  width:100%;
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+/* =========================================================
+   6. GRILLE DES PAYS — 5 colonnes sur desktop
+   ========================================================= */
+.country-grid{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:14px;
+  margin-bottom:28px;
+}
+
+.country-loading{
+  grid-column:1 / -1;
+  text-align:center;padding:60px 20px;
+  color:var(--c-text-muted);font-size:14px;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+}
+.country-loading i{font-size:24px;color:var(--c-primary);}
+
+/* Carte pays compacte — tient 5 sur une ligne */
+.country-card{
+  position:relative;
+  background:var(--c-surface);
+  border:1px solid var(--c-border);
+  border-radius:14px;
+  padding:16px 16px 14px;
+  cursor:pointer;
+  transition:all var(--t-base);
+  overflow:hidden;
+  animation:fadeInUp .4s ease both;
+  display:flex;flex-direction:column;
+  min-height:210px;
+}
+.country-card:hover:not(.is-disabled){
+  transform:translateY(-4px);
+  border-color:var(--c-primary);
+  box-shadow:0 20px 40px -20px rgba(79,70,229,.25), 0 8px 16px -8px rgba(79,70,229,.10);
+}
+.country-card:not(.is-disabled)::before{
+  content:'';
+  position:absolute;inset:0;
+  background:radial-gradient(400px 200px at 50% 0%, rgba(79,70,229,.08), transparent 70%);
+  opacity:0;
+  transition:opacity var(--t-base);
+  pointer-events:none;
+}
+.country-card:hover:not(.is-disabled)::before{opacity:1;}
+
+/* Version désactivée */
+.country-card.is-disabled{
+  opacity:.65;
+  cursor:not-allowed;
+  background:var(--c-surface-2);
+}
+
+/* En-tête : image + nom + code */
+.country-card__head{
+  display:flex;align-items:center;gap:10px;
+  margin-bottom:12px;
+}
+.country-card__flag{
+  width:48px;height:48px;
+  border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;
+  background:var(--c-surface-2);
+  border:1px solid var(--c-border);
+  flex-shrink:0;
+  overflow:hidden;
+  transition:transform var(--t-base);
+}
+.country-card:hover:not(.is-disabled) .country-card__flag{
+  transform:scale(1.08);
+}
+.country-card__flag-img{
+  width:100%;height:100%;
+  object-fit:cover;
+  display:block;
+}
+.country-card__info{flex:1;min-width:0;}
+.country-card__name{
+  font-size:14px;font-weight:800;
+  color:var(--c-text);letter-spacing:-.01em;
+  margin-bottom:2px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.country-card__code{
+  font-size:10px;font-weight:700;
+  color:var(--c-text-muted);
+  letter-spacing:.08em;text-transform:uppercase;
+}
+
+/* Badge de statut */
+.country-card__badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 9px;border-radius:999px;
+  font-size:9.5px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;
+  align-self:flex-start;
+  margin-bottom:10px;
+}
+.country-card__badge--active{
+  background:var(--c-success-50);color:var(--c-success-700);
+}
+.country-card__badge--soon{
+  background:var(--c-orange-50);color:var(--c-orange-700);
+}
+
+/* Description */
+.country-card__desc{
+  font-size:11.5px;color:var(--c-text-muted);
+  line-height:1.5;margin-bottom:12px;
+  flex:1;
+  display:-webkit-box;
+  -webkit-line-clamp:3;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* Footer de carte */
+.country-card__footer{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:8px;padding-top:11px;
+  border-top:1px solid var(--c-border);
+  font-size:10.5px;color:var(--c-text-muted);
+}
+.country-card__modules{
+  display:inline-flex;align-items:center;gap:5px;
+  font-weight:700;
+}
+.country-card__modules i{color:var(--c-primary);font-size:10px;}
+.country-card__arrow{
+  width:24px;height:24px;border-radius:50%;
+  background:var(--c-primary-50);color:var(--c-primary);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;
+  transition:all var(--t-base);
+  flex-shrink:0;
+}
+.country-card:hover:not(.is-disabled) .country-card__arrow{
+  background:var(--c-primary);color:#fff;
+  transform:translateX(3px);
+}
+[data-theme="dark"] .country-card__arrow{background:#1e1b4b;color:#a5b4fc;}
+[data-theme="dark"] .country-card:hover .country-card__arrow{background:var(--c-primary);color:#fff;}
+
+/* =========================================================
+   7. GRILLE DES MODULES (menu.html)
+   ========================================================= */
+.module-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:20px;
+}
+
+.module-card{
+  position:relative;
+  background:var(--c-surface);
+  border:1px solid var(--c-border);
+  border-radius:18px;
+  padding:28px;
+  cursor:pointer;
+  transition:all var(--t-base);
+  overflow:hidden;
+  animation:fadeInUp .4s ease both;
+  display:flex;flex-direction:column;
+  min-height:240px;
+}
+.module-card:hover:not(.is-disabled){
+  transform:translateY(-5px);
+  box-shadow:0 25px 50px -20px rgba(15,23,42,.20);
+}
+.module-card.is-disabled{
+  opacity:.55;
+  cursor:not-allowed;
+  background:var(--c-surface-2);
+}
+
+.module-card__stripe{
+  position:absolute;left:0;top:0;bottom:0;width:4px;
+}
+.module-card__stripe--primary{background:linear-gradient(180deg,#4f46e5,#8b5cf6);}
+.module-card__stripe--sky{background:linear-gradient(180deg,#0ea5e9,#06b6d4);}
+.module-card__stripe--violet{background:linear-gradient(180deg,#8b5cf6,#ec4899);}
+.module-card__stripe--orange{background:linear-gradient(180deg,#f97316,#eab308);}
+
+.module-card__icon{
+  width:60px;height:60px;
+  border-radius:16px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;
+  margin-bottom:18px;
+  transition:transform var(--t-base);
+}
+.module-card:hover:not(.is-disabled) .module-card__icon{
+  transform:scale(1.08) rotate(-5deg);
+}
+.module-card__icon--primary{background:linear-gradient(135deg,#eef2ff,#e0e7ff);color:#4f46e5;}
+.module-card__icon--sky{background:linear-gradient(135deg,#f0f9ff,#e0f2fe);color:#0ea5e9;}
+.module-card__icon--violet{background:linear-gradient(135deg,#f5f3ff,#ede9fe);color:#8b5cf6;}
+.module-card__icon--orange{background:linear-gradient(135deg,#fff7ed,#ffedd5);color:#f97316;}
+[data-theme="dark"] .module-card__icon--primary{background:linear-gradient(135deg,#1e1b4b,#312e81);color:#a5b4fc;}
+[data-theme="dark"] .module-card__icon--sky{background:linear-gradient(135deg,#07283d,#0c4a6e);color:#38bdf8;}
+[data-theme="dark"] .module-card__icon--violet{background:linear-gradient(135deg,#241a4a,#4c1d95);color:#a78bfa;}
+[data-theme="dark"] .module-card__icon--orange{background:linear-gradient(135deg,#3b1f05,#7c2d12);color:#fb923c;}
+
+.module-card__title{
+  font-size:19px;font-weight:800;
+  color:var(--c-text);letter-spacing:-.02em;
+  margin:0 0 6px;
+}
+.module-card__desc{
+  font-size:13px;color:var(--c-text-muted);
+  line-height:1.55;margin:0 0 16px;
+  flex:1;
+}
+.module-card__features{
+  list-style:none;padding:0;margin:0 0 18px;
+  display:flex;flex-direction:column;gap:5px;
+}
+.module-card__features li{
+  display:flex;align-items:center;gap:7px;
+  font-size:11.5px;color:var(--c-text-2);
+  font-weight:500;
+}
+.module-card__features i{
+  color:var(--c-success);font-size:10px;flex-shrink:0;
+}
+.module-card__badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 11px;border-radius:999px;
+  font-size:10px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;
+  align-self:flex-start;
+}
+.module-card__badge--active{background:var(--c-success-50);color:var(--c-success-700);}
+.module-card__badge--soon{background:var(--c-orange-50);color:var(--c-orange-700);}
+
+.module-card__arrow{
+  position:absolute;
+  top:24px;right:24px;
+  width:36px;height:36px;
+  border-radius:50%;
+  background:var(--c-primary-50);
+  color:var(--c-primary);
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;
+  opacity:0;
+  transform:translateX(-8px);
+  transition:all var(--t-base);
+}
+.module-card:hover:not(.is-disabled) .module-card__arrow{
+  opacity:1;
+  transform:translateX(0);
+}
+[data-theme="dark"] .module-card__arrow{background:#1e1b4b;color:#a5b4fc;}
+
+/* =========================================================
+   8. FOOTER — Collé en bas de page
+   ========================================================= */
+.home-footer{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:20px 28px;
+  border-top:1px solid var(--c-border);
+  background:var(--c-surface);
+  margin-top:auto;
+  flex-shrink:0;
+}
+.home-footer p{
+  margin:0;
+  font-size:12.5px;
+  color:var(--c-text-muted);
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-weight:500;
+}
+.home-footer i{
+  color:var(--c-primary);
+  font-size:14px;
+}
+
+/* =========================================================
+   9. RESPONSIVE
+   ========================================================= */
+
+/* Tablette large : 3 colonnes */
+@media(max-width:1200px){
+  .country-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+
+/* Tablette : 2 colonnes */
+@media(max-width:800px){
+  .country-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .home-hero{padding:36px 20px 20px;}
+  .home-hero__title{font-size:28px;}
+  .home-container{padding:12px 20px 24px;}
+  .home-topbar__inner{padding:12px 18px;flex-wrap:wrap;gap:12px;}
+  .home-brand{padding-right:14px;}
+  .home-brand__name h1{font-size:15px;}
+  .home-brand__name p{display:none;}
+  .home-action--with-label span{display:none;}
+  .module-grid{grid-template-columns:1fr;}
+  .home-footer{padding:18px 20px;}
+  .home-footer p{font-size:11.5px;}
+}
+
+/* Mobile : 1 colonne */
+@media(max-width:500px){
+  .country-grid{grid-template-columns:1fr;gap:12px;}
+  .home-hero__title{font-size:24px;}
+  .home-hero__title span{display:block;}
+  .country-card{min-height:auto;}
+  .home-footer p{flex-direction:column;gap:6px;text-align:center;}
+}

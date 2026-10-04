@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Packet Loss Intelligence</title>
+<!-- Feuilles de style -->
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/dashboard.css">
+<link rel="stylesheet" href="assets/css/leaflet.css">
+</head>
+<body>
+
+<!-- ============================================================
+     TOPBAR — Barre supérieure fixe
+     Contient : logo, titre, boutons d'action (Aide, Wallboard,
+     Sauvegardes, Alertes, Mode sombre), statut serveur
+     ============================================================ -->
+<header class="topbar">
+  <div class="topbar__inner">
+    <div class="brand">
+      <div class="brand__logo">
+        <img src="assets/images/logo1.png" alt="NPM" class="brand__logo-img">
+      </div>
+      <div class="brand__name">
+        <h1>Packet Loss <span>Intelligence</span></h1>
+        <p>Analyse réseau avancée <em>•</em> Seuil <strong>0.1%</strong></p>
+      </div>
+    </div>
+
+    <!-- Boutons d'action -->
+    <div class="topbar__actions">
+      <button id="helpBtn" class="topbar__action" title="Aide & glossaire">
+        <i class="fa-solid fa-circle-question"></i>
+        <span class="topbar__action-label">Aide</span>
+      </button>
+      <button id="wallboardBtn" class="topbar__action" title="Mode wallboard">
+        <i class="fa-solid fa-tv"></i>
+        <span class="topbar__action-label">Wallboard</span>
+      </button>
+      <button id="savedBtn" class="topbar__action" title="Analyses sauvegardées">
+        <i class="fa-solid fa-bookmark"></i>
+        <span class="topbar__action-label">Sauvegardes</span>
+      </button>
+      <button id="alertsBtn" class="topbar__action" title="Alertes email">
+        <i class="fa-solid fa-bell"></i>
+        <span class="topbar__action-label">Alertes</span>
+      </button>
+      <button id="darkModeBtn" class="topbar__action" title="Basculer le thème">
+        <i class="fa-solid fa-moon"></i>
+      </button>
+
+      <!-- NOUVEAU : bouton de déconnexion -->
+      <button id="logoutBtn" class="topbar__action topbar__action--logout" title="Déconnexion — Retour à l'accueil">
+        <i class="fa-solid fa-right-from-bracket"></i>
+        <span class="topbar__action-label">Déconnexion</span>
+      </button>
+    </div>
+
+    <!-- Statut serveur -->
+    <div class="topbar__status" id="apiStatusWrap">
+      <span class="status-dot"></span>
+      <span class="status-text" id="apiStatus">Prêt</span>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- ============================================================
+       SECTION 1 — CONFIGURATION DE L'ANALYSE
+       3 cartes : Sources, Période, Réseau + boutons d'action
+       ============================================================ -->
+  <section class="config-section">
+    <header class="section-head">
+      <div class="section-head__left">
+        <div class="section-icon"><i class="fa-solid fa-sliders"></i></div>
+        <div>
+          <h2>Configuration de l'analyse</h2>
+          <p>Définissez le périmètre : fichiers, période et vendor.</p>
+        </div>
+      </div>
+      <div class="section-head__right">
+        <button id="compareToggleBtn" class="pill pill--action" title="Comparer deux périodes">
+          <i class="fa-solid fa-code-compare"></i> Comparer
+        </button>
+        <button id="thresholdsBtn" class="pill pill--action" title="Seuils par site">
+          <i class="fa-solid fa-gauge-high"></i> Seuils
+        </button>
+        <span class="pill pill--warning"><i class="fa-solid fa-circle-info"></i> Seuil 0.1%</span>
+      </div>
+    </header>
+
+    <!-- Grille des 3 cartes de configuration -->
+    <div class="config-grid">
+
+      <!-- CARTE 1 — SOURCES DE DONNÉES -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--blue"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--blue"><i class="fa-solid fa-folder-open"></i></div>
+          <div>
+            <span class="config-card__step">Étape 01</span>
+            <h3>Sources des données</h3>
+            <p>Sélectionnez les fichiers nécessaires.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+          <!-- Fichier TXT : liste des sites à analyser -->
+          <div class="field">
+            <label for="sitesFile" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-file-lines"></i></span>
+              Fichier TXT
+            </label>
+            <div class="file-input"><input id="sitesFile" type="file" accept=".txt,.csv"></div>
+            <small id="sitesFileName" class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Aucun fichier sélectionné
+            </small>
+          </div>
+
+          <!-- Zone de collage / saisie directe des sites -->
+          <div class="field">
+            <label for="sitesPaste" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-location-dot"></i></span>
+              Sites à analyser
+            </label>
+            <textarea id="sitesPaste" rows="3" placeholder="AC078 AC155 ET010 IM024"></textarea>
+            <small class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Séparés par espace, virgule, ; ou retour à la ligne
+            </small>
+          </div>
+
+          <!-- Fichier Excel optionnel (localisation / info sites) -->
+          <div class="field">
+            <label for="excelFile" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-file-excel"></i></span>
+              Fichier Excel
+            </label>
+            <div class="file-input"><input id="excelFile" type="file" accept=".xlsx,.xls"></div>
+            <small class="field__hint">
+              <i class="fa-solid fa-circle-info"></i> Colonne "Site" du 1er onglet
+            </small>
+          </div>
+        </div>
+      </article>
+
+      <!-- CARTE 2 — PÉRIODE D'ANALYSE -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--violet"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--violet"><i class="fa-regular fa-calendar"></i></div>
+          <div>
+            <span class="config-card__step">Étape 02</span>
+            <h3>Période d'analyse</h3>
+            <p>Définissez la fenêtre temporelle.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+          <!-- Preset : 7j / 14j / 30j / custom -->
+          <div class="field">
+            <label for="periodPreset" class="field__label">
+              <span class="field__label-icon"><i class="fa-regular fa-calendar-days"></i></span>
+              Période
+            </label>
+            <select id="periodPreset">
+              <option value="7">7 derniers jours</option>
+              <option value="14">14 derniers jours</option>
+              <option value="30">30 derniers jours</option>
+              <option value="CUSTOM">Personnalisée</option>
+            </select>
+          </div>
+          <!-- Dates début / fin -->
+          <div class="grid-2">
+            <div class="field"><label for="startDate" class="field__label">Début</label><input type="date" id="startDate"></div>
+            <div class="field"><label for="endDate" class="field__label">Fin</label><input type="date" id="endDate"></div>
+          </div>
+          <!-- Plage horaire -->
+          <div class="field">
+            <label for="hourRange" class="field__label">
+              <span class="field__label-icon"><i class="fa-regular fa-clock"></i></span>
+              Plage horaire
+            </label>
+            <select id="hourRange">
+              <option value="all">Toute la journée</option>
+              <option value="00-06">Nuit (00h - 06h)</option>
+              <option value="06-12">Matin (06h - 12h)</option>
+              <option value="12-18">Après-midi (12h - 18h)</option>
+              <option value="18-24">Soir (18h - 24h)</option>
+            </select>
+          </div>
+        </div>
+      </article>
+
+      <!-- CARTE 3 — PARAMÈTRES RÉSEAU -->
+      <article class="config-card">
+        <div class="config-card__stripe config-card__stripe--green"></div>
+        <header class="config-card__head">
+          <div class="config-card__icon config-card__icon--green"><i class="fa-solid fa-tower-broadcast"></i></div>
+          <div>
+            <span class="config-card__step">Étape 03</span>
+            <h3>Paramètres réseau</h3>
+            <p>Constructeur et seuil de tolérance.</p>
+          </div>
+        </header>
+        <div class="config-card__body">
+          <!-- Filtre vendor -->
+          <div class="field">
+            <label for="vendor" class="field__label">
+              <span class="field__label-icon"><i class="fa-solid fa-industry"></i></span>
+              Vendor
+            </label>
+            <select id="vendor">
+              <option value="ALL">Tous les vendors</option>
+              <option value="ERICSSON">Ericsson</option>
+              <option value="HUAWEI">Huawei</option>
+            </select>
+          </div>
+          <!-- Rappel du seuil par défaut -->
+          <div class="threshold-box">
+            <div class="threshold-box__head"><i class="fa-solid fa-gauge-high"></i><span>Seuil par défaut</span></div>
+            <div class="threshold-box__value"><strong id="defaultThresholdValue">0.10</strong><span>%</span></div>
+            <p class="threshold-box__hint">Les valeurs supérieures sont considérées comme problématiques.</p>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <!-- BLOC COMPARAISON (masqué par défaut, ouvert via "Comparer") -->
+    <div id="compareBlock" class="compare-block hidden">
+      <header class="compare-block__head">
+        <div class="compare-block__head-left">
+          <i class="fa-solid fa-code-compare"></i>
+          <div>
+            <h3>Comparaison multi-périodes</h3>
+            <p>Comparez la période courante avec une période de référence.</p>
+          </div>
+        </div>
+        <button id="compareCloseBtn" class="compare-block__close"><i class="fa-solid fa-xmark"></i></button>
+      </header>
+      <div class="compare-block__body">
+        <div class="compare-block__col">
+          <span class="compare-block__label">Période courante</span>
+          <div class="compare-block__dates"><span id="compareCurrentRange">—</span></div>
+        </div>
+        <div class="compare-block__arrow"><i class="fa-solid fa-arrow-right-arrow-left"></i></div>
+        <div class="compare-block__col">
+          <span class="compare-block__label">Référence</span>
+          <div class="compare-block__dates">
+            <input type="date" id="compareRefStart">
+            <span>→</span>
+            <input type="date" id="compareRefEnd">
+          </div>
+        </div>
+        <button id="compareRunBtn" class="btn btn--primary"><i class="fa-solid fa-bolt"></i> Comparer</button>
+      </div>
+    </div>
+
+    <!-- Boutons d'action centrés -->
+    <div class="action-bar">
+      <button id="analyzeBtn" class="btn btn--primary btn--lg">
+        <i class="fa-solid fa-bolt"></i><span>Lancer l'analyse</span>
+      </button>
+      <button id="resetBtn" class="btn btn--ghost btn--lg">
+        <i class="fa-solid fa-rotate-left"></i><span>Réinitialiser</span>
+      </button>
+    </div>
+
+    <!-- Zones de messages -->
+    <div id="requestInfo" class="alert alert--info hidden"></div>
+    <div id="message" class="alert alert--warning hidden"></div>
+  </section>
+
+  <!-- ============================================================
+       VUE PRINCIPALE — Résultats standards
+       Contient : Résumé, Worst Sites, Carte, Analyse par site
+       ============================================================ -->
+  <section id="mainView" class="view hidden">
+
+    <!-- Barre d'actions rapides -->
+    <div class="quick-bar">
+      <button id="saveAnalysisBtn" class="quick-btn quick-btn--primary">
+        <i class="fa-solid fa-floppy-disk"></i> Sauvegarder
+      </button>
+      <button id="autoHubBtn" class="quick-btn is-active" title="Afficher uniquement les HUBs liés">
+        <i class="fa-solid fa-hubspot"></i> HUB auto
+      </button>
+      <button id="advancedViewBtn" class="quick-btn quick-btn--accent">
+        <i class="fa-solid fa-microscope"></i> Modules avancés
+        <i class="fa-solid fa-arrow-right" style="font-size:9px;opacity:.7"></i>
+      </button>
+      <span class="quick-bar__info">
+        <i class="fa-solid fa-lightbulb"></i>
+        Cliquez sur un graphique pour ajouter une annotation
+      </span>
+    </div>
+
+    <!-- Bandeau de fraîcheur des données -->
+    <div class="freshness-bar">
+      <i class="fa-solid fa-signal"></i>
+      <span id="dataFreshness">En attente d'analyse</span>
+    </div>
+
+    <!-- PANNEAU COMPARAISON (résultats) -->
+    <section id="compareResultsPanel" class="panel panel--compare hidden">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-code-compare"></i></div>
+          <div>
+            <h2 class="panel__title">Comparaison de périodes</h2>
+            <p class="panel__subtitle" id="compareResultsSubtitle">—</p>
+          </div>
+        </div>
+        <button id="compareResultsClose" class="panel__close"><i class="fa-solid fa-xmark"></i></button>
+      </header>
+      <div class="compare-summary" id="compareSummaryKpi"></div>
+      <div id="compareChart" class="chart" style="min-height:340px"></div>
+    </section>
+
+    <!-- DEUX COLONNES : WORST + RÉSUMÉ -->
+    <section class="two-col">
+      <article class="panel panel--worst">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--red"><i class="fa-solid fa-ranking-star"></i></div>
+            <div>
+              <h2 class="panel__title">Worst Packet Loss Sites</h2>
+              <p class="panel__subtitle">Top 10 des sites les plus dégradés.</p>
+            </div>
+          </div>
+          <span class="panel__badge panel__badge--red">Top 10</span>
+        </header>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Rang</th><th>Site</th><th>Vendor</th><th>Lien</th>
+                <th class="num">Moy.</th><th class="num">Max</th>
+                <th class="num">Dégradé</th><th class="num">&gt; Seuil</th>
+                <th class="num">Score</th><th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="worstTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel panel--resume">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-chart-pie"></i></div>
+            <div>
+              <h2 class="panel__title">Résumé de l'analyse</h2>
+              <p class="panel__subtitle">Vue d'ensemble de la couverture.</p>
+            </div>
+          </div>
+        </header>
+        <!-- Grille 4 résumés -->
+        <div class="resume-grid">
+          <div class="resume-item resume-item--blue">
+            <div class="resume-item__icon"><i class="fa-solid fa-list-check"></i></div>
+            <div class="resume-item__body"><span class="resume-item__label">Sites demandés</span><strong class="resume-item__value" id="kSitesRequested">0</strong></div>
+          </div>
+          <div class="resume-item resume-item--green">
+            <div class="resume-item__icon"><i class="fa-solid fa-database"></i></div>
+            <div class="resume-item__body"><span class="resume-item__label">Avec données</span><strong class="resume-item__value" id="kSitesData">0</strong></div>
+          </div>
+          <div class="resume-item resume-item--red">
+            <div class="resume-item__icon"><i class="fa-solid fa-circle-xmark"></i></div>
+            <div class="resume-item__body"><span class="resume-item__label">Sans données</span><strong class="resume-item__value" id="kNoDataKpi">0</strong></div>
+          </div>
+          <div class="resume-item resume-item--violet resume-item--accent">
+            <div class="resume-item__icon"><i class="fa-solid fa-percent"></i></div>
+            <div class="resume-item__body"><span class="resume-item__label">Taux de couverture</span><strong class="resume-item__value" id="kCoverage">0%</strong></div>
+            <div class="resume-progress"><div class="resume-progress__fill" id="kCoverageBar" style="width:0%"></div></div>
+          </div>
+        </div>
+        <!-- 5 mini KPIs -->
+        <div class="resume-secondary">
+          <div class="mini-kpi mini-kpi--orange"><i class="fa-solid fa-triangle-exclamation"></i><span>Impactés</span><strong id="kImpacted">0</strong></div>
+          <div class="mini-kpi mini-kpi--red"><i class="fa-solid fa-arrow-trend-up"></i><span>Dégradés</span><strong id="kDegrading">0</strong></div>
+          <div class="mini-kpi mini-kpi--gray"><i class="fa-solid fa-minus"></i><span>Stables</span><strong id="kStable">0</strong></div>
+          <div class="mini-kpi mini-kpi--green"><i class="fa-solid fa-arrow-trend-down"></i><span>Améliorés</span><strong id="kImproving">0</strong></div>
+          <div class="mini-kpi mini-kpi--blue"><i class="fa-solid fa-chart-line"></i><span>Max PL</span><strong id="kMax">0.0000%</strong></div>
+        </div>
+        <!-- Barre de synthèse -->
+        <div class="summary">
+          <div class="summary__item"><i class="fa-solid fa-ruler"></i><span>Mesures</span><strong id="kRows">0</strong></div>
+          <div class="summary__item"><i class="fa-solid fa-chart-line"></i><span>Moyenne</span><strong id="kAvg">0.0000%</strong></div>
+          <div class="summary__item"><i class="fa-solid fa-gauge-high"></i><span>Seuil</span><strong id="summaryThreshold">0.1%</strong></div>
+          <div class="summary__item"><i class="fa-solid fa-tower-broadcast"></i><span>Vendor</span><strong id="summaryVendor">Tous</strong></div>
+          <div class="summary__item"><i class="fa-regular fa-clock"></i><span>Plage</span><strong id="summaryHourRange">Toute la journée</strong></div>
+          <div class="summary__item"><i class="fa-regular fa-calendar"></i><span>Période</span><strong id="summaryPeriod">-</strong></div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Élément masqué (compatibilité JS historique) -->
+    <span id="kNoData" class="hidden"></span>
+
+    <!-- SITES SANS DONNÉES -->
+    <section id="noDataPanel" class="panel panel--no-data hidden">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--orange"><i class="fa-solid fa-circle-exclamation"></i></div>
+          <div>
+            <h2 class="panel__title">Sites sans données</h2>
+            <p class="panel__subtitle"><strong id="noDataCount">0</strong> site(s) demandé(s) sans mesure.</p>
+          </div>
+        </div>
+      </header>
+      <div id="noDataList" class="no-data-list"></div>
+    </section>
+
+    <!-- GRAPHIQUE GLOBAL -->
+    <section class="panel">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--blue"><i class="fa-solid fa-wave-square"></i></div>
+          <div>
+            <h2 class="panel__title">Évolution globale du Packet Loss</h2>
+            <p class="panel__subtitle">Zoom synchronisé sur tous les graphiques de sites.</p>
+          </div>
+        </div>
+        <button class="chart-export-btn" data-export="globalChart" title="Télécharger l'image">
+          <i class="fa-solid fa-download"></i>
+        </button>
+      </header>
+      <div id="globalChart" class="chart chart--global"></div>
+    </section>
+
+    <!-- CARTE RÉSEAU -->
+    <section class="panel panel--map" id="mapPanel">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--green"><i class="fa-solid fa-map-location-dot"></i></div>
+          <div>
+            <h2 class="panel__title">Carte réseau et HUBs</h2>
+            <p class="panel__subtitle">Cliquez sur un site pour isoler ses liaisons.</p>
+          </div>
+        </div>
+        <div class="map-toolbar">
+          <div class="map-toolbar__filters">
+            <div class="mini-field">
+              <i class="fa-solid fa-tower-broadcast"></i>
+              <select id="mapVendorFilter">
+                <option value="ALL">Tous vendors</option>
+                <option value="HUAWEI">Huawei</option>
+                <option value="ERICSSON">Ericsson</option>
+              </select>
+            </div>
+            <div class="mini-field">
+              <i class="fa-solid fa-diagram-project"></i>
+              <select id="mapLinkFilter">
+                <option value="ALL">Tous liens</option>
+                <option value="FO">FO</option>
+                <option value="FH">FH</option>
+                <option value="TR">Transmission</option>
+                <option value="TOPO">WDM</option>
+              </select>
+            </div>
+          </div>
+          <div class="map-legend">
+            <span><i class="dot dot--huawei"></i>Huawei</span>
+            <span><i class="dot dot--ericsson"></i>Ericsson</span>
+            <span><i class="line line--fo"></i>FO</span>
+            <span><i class="line line--fh"></i>FH</span>
+            <span><i class="line line--tr"></i>Transmission</span>
+            <span><i class="line line--topo"></i>WDM</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Cases à cocher des calques -->
+      <div class="map-toggles">
+        <label class="chk"><input type="checkbox" id="toggleSites" checked><span>Sites</span></label>
+        <label class="chk"><input type="checkbox" id="toggleFO" checked><span>FO</span></label>
+        <label class="chk"><input type="checkbox" id="toggleFH" checked><span>FH</span></label>
+        <label class="chk"><input type="checkbox" id="toggleTR" checked><span>Transmission</span></label>
+        <label class="chk"><input type="checkbox" id="toggleTOPO" checked><span>WDM</span></label>
+        <div class="map-toggles__group">
+          <span class="map-toggles__label"><i class="fa-solid fa-map"></i> Fond :</span>
+          <button class="base-layer-btn is-active" data-layer="osm" title="Carte routière">
+            <i class="fa-solid fa-road"></i> Plan
+          </button>
+          <button class="base-layer-btn" data-layer="satellite" title="Vue satellite">
+            <i class="fa-solid fa-satellite"></i> Satellite
+          </button>
+          <button class="base-layer-btn" data-layer="hybrid" title="Satellite + rues">
+            <i class="fa-solid fa-layer-group"></i> Hybride
+          </button>
+        </div>
+        <label class="chk chk--hub"><input type="checkbox" id="toggleHubs"><span>Vue HUB uniquement</span></label>
+        <label class="chk"><input type="checkbox" id="toggleHeatmap"><span>Heatmap packet loss</span></label>
+      </div>
+
+      <!-- Boutons flottants -->
+      <button id="hubPanelToggleFloat" class="hub-panel-toggle-float hidden">
+        <i class="fa-solid fa-hubspot"></i><span>HUBs</span>
+      </button>
+      <button id="mapResetFloatBtn" class="map-reset-float hidden">
+        <i class="fa-solid fa-rotate-left"></i><span>Tous les sites</span>
+      </button>
+
+      <!-- Layout carte + panneau HUB -->
+      <div class="map-layout" id="mapLayout">
+        <div id="map" class="map"></div>
+        <aside class="hub-panel" id="hubPanel">
+          <header class="hub-panel__head">
+            <div class="hub-panel__title">
+              <i class="fa-solid fa-hubspot"></i>
+              <div><h3>HUBs identifiés</h3><p>Top 8 sites centraux</p></div>
+            </div>
+            <button id="hubPanelToggle" class="hub-panel__toggle"><i class="fa-solid fa-chevron-right"></i></button>
+          </header>
+          <div class="hub-panel__body" id="hubPanelBody">
+            <div class="hub-list" id="hubList">
+              <div class="hub-empty"><i class="fa-solid fa-circle-info"></i><p>Lancez une analyse pour identifier les HUBs.</p></div>
+            </div>
+            <div class="hub-details hidden" id="hubDetails"></div>
+          </div>
+        </aside>
+      </div>
+      <div id="mapInfo" class="map-info">Chargement du référentiel...</div>
+    </section>
+
+    <!-- ANALYSE DÉTAILLÉE PAR SITE -->
+    <section class="panel">
+      <header class="panel__head panel__head--toolbar">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-chart-simple"></i></div>
+          <div>
+            <h2 class="panel__title">Analyse détaillée par site</h2>
+            <p class="panel__subtitle">Un graphique par site avec sa tendance.</p>
+          </div>
+        </div>
+        <!-- Filtres -->
+        <div class="site-filters">
+          <div class="view-toggle" id="viewToggle">
+            <button type="button" class="view-toggle__btn is-active" data-view="day"><i class="fa-solid fa-calendar-day"></i> Vue jour</button>
+            <button type="button" class="view-toggle__btn" data-view="raw"><i class="fa-solid fa-clock"></i> Vue brute</button>
+          </div>
+          <div class="search-input">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input id="siteSearch" type="search" placeholder="Rechercher un site...">
+          </div>
+          <select id="siteSort" class="select-sm">
+            <option value="name_asc">Site A-Z</option>
+            <option value="worst_degraded">Pires dégradés</option>
+            <option value="fastest_degrading">Dégradation rapide</option>
+            <option value="best_degraded">Meilleurs dégradés</option>
+            <option value="highest_avg">Perte max</option>
+            <option value="worst_score">Score le plus bas</option>
+            <option value="threshold_exceeded">Seuil dépassé</option>
+          </select>
+          <select id="trendFilter" class="select-sm">
+            <option value="all">Toutes tendances</option>
+            <option value="improving">Amélioration</option>
+            <option value="stable">Stable</option>
+            <option value="degrading">Dégradation</option>
+          </select>
+        </div>
+      </header>
+      <div id="siteGrid" class="site-grid"></div>
+    </section>
+  </section>
+
+  <!-- ============================================================
+       VUE AVANCÉE — Modules approfondis
+       Contient : Fiabilité, Corrélations, Heatmap, Prédictions,
+       Superposés, Alertes actives
+       ============================================================ -->
+  <section id="advancedView" class="view hidden">
+
+    <!-- Header dédié -->
+    <div class="advanced-header">
+      <div class="advanced-header__left">
+        <button id="backToMainBtn" class="advanced-back">
+          <i class="fa-solid fa-arrow-left"></i> Retour
+        </button>
+        <div class="advanced-header__title">
+          <i class="fa-solid fa-microscope"></i>
+          <div>
+            <h2>Modules avancés</h2>
+            <p>Analyse approfondie, corrélations et prédictions.</p>
+          </div>
+        </div>
+      </div>
+      <div class="advanced-header__right">
+        <button id="wallboardBtnAdvanced" class="btn btn--ghost btn--sm">
+          <i class="fa-solid fa-tv"></i> Wallboard
+        </button>
+        <button id="helpBtnAdvanced" class="btn btn--ghost btn--sm">
+          <i class="fa-solid fa-circle-question"></i> Aide
+        </button>
+      </div>
+    </div>
+
+    <!-- Onglets de navigation -->
+    <div class="tabs" id="detailTabs">
+      <button class="tab is-active" data-tab="reliability"><i class="fa-solid fa-shield-halved"></i> Fiabilité</button>
+      <button class="tab" data-tab="correlation"><i class="fa-solid fa-diagram-project"></i> Corrélations</button>
+      <button class="tab" data-tab="heatmap"><i class="fa-solid fa-border-all"></i> Heatmap horaire</button>
+      <button class="tab" data-tab="predictions"><i class="fa-solid fa-crystal-ball"></i> Prédictions</button>
+      <button class="tab" data-tab="overlay"><i class="fa-solid fa-layer-group"></i> Superposés</button>
+      <button class="tab" data-tab="activeAlerts">
+        <i class="fa-solid fa-bell"></i> Alertes actives
+        <span class="badge-count" id="activeAlertsBadge">0</span>
+      </button>
+    </div>
+
+    <!-- Onglet Fiabilité -->
+    <div class="tab-content" data-tab-content="reliability">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--green"><i class="fa-solid fa-shield-halved"></i></div>
+            <div>
+              <h2 class="panel__title">Fiabilité des sites</h2>
+              <p class="panel__subtitle">SLA, MTBF, MTTR et score qualité.</p>
+            </div>
+          </div>
+        </header>
+        <div class="table-wrapper">
+          <table class="data-table data-table--reliability">
+            <thead>
+              <tr>
+                <th>Site</th><th>Vendor</th>
+                <th class="num">Disponibilité</th>
+                <th class="num">MTBF</th>
+                <th class="num">MTTR</th>
+                <th class="num">Incidents</th>
+                <th class="num">Score</th>
+                <th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="reliabilityTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet Corrélations -->
+    <div class="tab-content hidden" data-tab-content="correlation">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-diagram-project"></i></div>
+            <div>
+              <h2 class="panel__title">Corrélations entre sites</h2>
+              <p class="panel__subtitle">Détectez les dégradations simultanées.</p>
+            </div>
+          </div>
+        </header>
+        <div class="correlation-help">
+          <i class="fa-solid fa-circle-info"></i>
+          <p>La matrice montre quels sites chutent <strong>en même temps</strong>. Une corrélation &gt; 50 % suggère un problème partagé.</p>
+        </div>
+        <div class="correlation-controls">
+          <label class="field__label">Top</label>
+          <select id="correlationTop" class="select-sm">
+            <option value="10">10 sites</option>
+            <option value="15" selected>15 sites</option>
+            <option value="20">20 sites</option>
+            <option value="30">30 sites</option>
+          </select>
+          <label class="field__label">Seuil</label>
+          <input type="range" id="correlationThreshold" min="10" max="90" value="30" style="width:180px">
+          <span id="correlationThresholdValue">30%</span>
+        </div>
+        <div class="correlation-pairs" id="correlationPairs"></div>
+        <div id="correlationMatrix" class="correlation-matrix"></div>
+      </div>
+    </div>
+
+    <!-- Onglet Heatmap horaire -->
+    <div class="tab-content hidden" data-tab-content="heatmap">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--orange"><i class="fa-solid fa-border-all"></i></div>
+            <div>
+              <h2 class="panel__title">Heatmap horaire</h2>
+              <p class="panel__subtitle">Patterns par jour de semaine et heure.</p>
+            </div>
+          </div>
+        </header>
+        <div class="heatmap-controls">
+          <label class="field__label">Vue</label>
+          <select id="heatmapScope" class="select-sm">
+            <option value="all">Tous les sites</option>
+            <option value="single">Site individuel</option>
+          </select>
+          <select id="heatmapSite" class="select-sm hidden">
+            <option value="">— Choisir un site —</option>
+          </select>
+        </div>
+        <div id="heatmapContainer" class="heatmap-container"></div>
+      </div>
+    </div>
+
+    <!-- Onglet Prédictions -->
+    <div class="tab-content hidden" data-tab-content="predictions">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-crystal-ball"></i></div>
+            <div>
+              <h2 class="panel__title">Prédictions</h2>
+              <p class="panel__subtitle">Estimation J+7 et J+30 par régression linéaire.</p>
+            </div>
+          </div>
+        </header>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th class="num">Moyenne actuelle</th>
+                <th class="num">Pente / jour</th>
+                <th class="num">Prédiction J+7</th>
+                <th class="num">Prédiction J+30</th>
+                <th>Tendance</th>
+              </tr>
+            </thead>
+            <tbody id="predictionsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet Superposés -->
+    <div class="tab-content hidden" data-tab-content="overlay">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--sky"><i class="fa-solid fa-layer-group"></i></div>
+            <div>
+              <h2 class="panel__title">Graphiques superposés</h2>
+              <p class="panel__subtitle">Comparez plusieurs sites sur un même graphique.</p>
+            </div>
+          </div>
+        </header>
+        <div class="overlay-controls">
+          <div class="overlay-controls__search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input id="overlaySearch" type="search" placeholder="Rechercher un site à ajouter...">
+          </div>
+          <div class="overlay-controls__chips" id="overlayChips"><span class="overlay-chip-empty">Aucun site sélectionné</span></div>
+          <button id="overlayClearBtn" class="btn btn--ghost btn--sm"><i class="fa-solid fa-eraser"></i> Effacer</button>
+        </div>
+        <div id="overlaySuggestions" class="overlay-suggestions hidden"></div>
+        <div id="overlayChart" class="chart" style="min-height:400px"></div>
+      </div>
+    </div>
+
+    <!-- Onglet Alertes actives -->
+    <div class="tab-content hidden" data-tab-content="activeAlerts">
+      <div class="panel">
+        <header class="panel__head">
+          <div class="panel__head-left">
+            <div class="panel__icon panel__icon--red"><i class="fa-solid fa-bell"></i></div>
+            <div>
+              <h2 class="panel__title">Alertes actives</h2>
+              <p class="panel__subtitle">Cliquez sur un site pour le localiser sur la carte.</p>
+            </div>
+          </div>
+        </header>
+        <div id="activeAlertsList" class="alerts-list"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ÉTAT VIDE (aucune analyse lancée) -->
+  <section id="emptyState" class="empty">
+    <div class="empty__orbit">
+      <div class="empty__satellite"><i class="fa-solid fa-satellite-dish"></i></div>
+      <div class="empty__ring empty__ring--1"></div>
+      <div class="empty__ring empty__ring--2"></div>
+    </div>
+    <h2 class="empty__title">Aucune analyse en cours</h2>
+    <p class="empty__text">Importez ou collez vos sites, puis cliquez sur <strong>Lancer l'analyse</strong> pour démarrer.</p>
+    <div class="empty__hints">
+      <div class="empty__hint"><i class="fa-solid fa-file-lines"></i><span>1. Importez vos sites</span></div>
+      <div class="empty__hint"><i class="fa-regular fa-calendar"></i><span>2. Choisissez la période</span></div>
+      <div class="empty__hint"><i class="fa-solid fa-bolt"></i><span>3. Lancez l'analyse</span></div>
+    </div>
+    <button id="tryExampleBtn" class="btn btn--primary btn--lg" style="margin-top:24px">
+      <i class="fa-solid fa-flask"></i> Essayer avec un exemple
+    </button>
+  </section>
+</main>
+
+<!-- ============================================================
+     MODALES
+     ============================================================ -->
+
+<!-- MODALE SAUVEGARDES -->
+<div id="savedModal" class="modal hidden">
+  <div class="modal__overlay" data-close="savedModal"></div>
+  <div class="modal__box modal__box--lg">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-bookmark"></i>
+        <div><h3>Analyses sauvegardées</h3><p>Retrouvez vos analyses passées.</p></div>
+      </div>
+      <button class="modal__close" data-close="savedModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body"><div id="savedList" class="saved-list"></div></div>
+  </div>
+</div>
+
+<!-- MODALE ALERTES EMAIL -->
+<div id="alertsModal" class="modal hidden">
+  <div class="modal__overlay" data-close="alertsModal"></div>
+  <div class="modal__box modal__box--lg">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-bell"></i>
+        <div><h3>Alertes email automatiques</h3><p>Configurez vos notifications.</p></div>
+      </div>
+      <button class="modal__close" data-close="alertsModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body">
+      <div class="alert-help">
+        <i class="fa-solid fa-circle-info"></i>
+        <p>Les alertes sont vérifiées toutes les heures par un cron serveur. Vous recevrez un email si un site dépasse son seuil pendant N heures consécutives.</p>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="alertEmail" class="field__label"><i class="fa-solid fa-envelope"></i> Email destinataire</label>
+          <input type="email" id="alertEmail" placeholder="noc@example.com">
+        </div>
+        <div class="field">
+          <label for="alertMinHours" class="field__label"><i class="fa-regular fa-clock"></i> Durée minimale (h)</label>
+          <input type="number" id="alertMinHours" min="1" max="72" value="3">
+        </div>
+        <div class="field">
+          <label for="alertFrequency" class="field__label"><i class="fa-solid fa-repeat"></i> Fréquence</label>
+          <select id="alertFrequency">
+            <option value="hourly">Toutes les heures</option>
+            <option value="daily">Une fois par jour</option>
+            <option value="weekly">Hebdomadaire</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field__label"><i class="fa-solid fa-location-dot"></i> Sites à surveiller</label>
+        <p class="field__hint">Laissez vide pour surveiller tous les sites analysés.</p>
+        <textarea id="alertSites" rows="3" placeholder="AC078 AC155 ET010"></textarea>
+      </div>
+      <div class="modal__actions">
+        <button id="alertSaveBtn" class="btn btn--primary"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
+        <button id="alertTestBtn" class="btn btn--ghost"><i class="fa-solid fa-paper-plane"></i> Envoyer un test</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE SEUILS PAR SITE -->
+<div id="thresholdsModal" class="modal hidden">
+  <div class="modal__overlay" data-close="thresholdsModal"></div>
+  <div class="modal__box modal__box--lg">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-gauge-high"></i>
+        <div><h3>Seuils par site</h3><p>Définissez un seuil spécifique pour certains sites.</p></div>
+      </div>
+      <button class="modal__close" data-close="thresholdsModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body">
+      <div class="form-row form-row--2">
+        <div class="field">
+          <label for="defaultThresholdInput" class="field__label">Seuil par défaut (%)</label>
+          <input type="number" id="defaultThresholdInput" step="0.01" min="0.01" max="10" value="0.1">
+        </div>
+        <div class="field">
+          <label for="thresholdSearch" class="field__label">Rechercher</label>
+          <input type="search" id="thresholdSearch" placeholder="Ex : AC078">
+        </div>
+      </div>
+      <div class="thresholds-list" id="thresholdsList">
+        <p class="thresholds-list__empty">Aucun seuil personnalisé.</p>
+      </div>
+      <div class="thresholds-add">
+        <div class="field"><label class="field__label">Site</label><input type="text" id="thresholdSiteInput" placeholder="AC078"></div>
+        <div class="field"><label class="field__label">Seuil (%)</label><input type="number" id="thresholdValueInput" step="0.01" min="0.01" max="10" placeholder="0.05"></div>
+        <button id="thresholdAddBtn" class="btn btn--primary"><i class="fa-solid fa-plus"></i> Ajouter</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE ANNOTATION -->
+<div id="annotationModal" class="modal hidden">
+  <div class="modal__overlay" data-close="annotationModal"></div>
+  <div class="modal__box">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-pen"></i>
+        <div><h3>Nouvelle annotation</h3><p id="annotationContext">—</p></div>
+      </div>
+      <button class="modal__close" data-close="annotationModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body">
+      <div class="field">
+        <label for="annotationText" class="field__label">Note</label>
+        <textarea id="annotationText" rows="3" placeholder="Ex: Coupure fibre, Maintenance..."></textarea>
+      </div>
+      <div class="field">
+        <label for="annotationType" class="field__label">Type</label>
+        <select id="annotationType">
+          <option value="incident">Incident</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="info">Info</option>
+          <option value="resolved">Résolu</option>
+        </select>
+      </div>
+      <div class="modal__actions">
+        <button id="annotationSaveBtn" class="btn btn--primary"><i class="fa-solid fa-check"></i> Ajouter</button>
+        <button id="annotationDeleteBtn" class="btn btn--ghost hidden"><i class="fa-solid fa-trash"></i> Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE AIDE & GLOSSAIRE -->
+<div id="helpModal" class="modal hidden">
+  <div class="modal__overlay" data-close="helpModal"></div>
+  <div class="modal__box modal__box--lg">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-circle-question"></i>
+        <div><h3>Aide & Glossaire</h3><p>Tout ce qu'il faut savoir.</p></div>
+      </div>
+      <button class="modal__close" data-close="helpModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body">
+      <div class="help-tabs">
+        <button class="help-tab is-active" data-help="guide">Guide</button>
+        <button class="help-tab" data-help="glossary">Glossaire</button>
+        <button class="help-tab" data-help="kpis">KPIs</button>
+      </div>
+      <div class="help-content" id="helpContent"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE WALLBOARD -->
+<div id="wallboardModal" class="modal hidden">
+  <div class="modal__overlay" data-close="wallboardModal"></div>
+  <div class="modal__box">
+    <header class="modal__head">
+      <div class="modal__title">
+        <i class="fa-solid fa-tv"></i>
+        <div><h3>Mode Wallboard</h3><p>Affichage permanent pour écran de supervision.</p></div>
+      </div>
+      <button class="modal__close" data-close="wallboardModal"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="modal__body">
+      <div class="field">
+        <label for="wallboardDuration" class="field__label">Durée par vue (secondes)</label>
+        <input type="number" id="wallboardDuration" value="30" min="10" max="300">
+      </div>
+      <div class="field">
+        <label for="wallboardRefresh" class="field__label">Rafraîchissement (minutes)</label>
+        <input type="number" id="wallboardRefresh" value="10" min="1" max="120">
+      </div>
+      <div class="modal__actions">
+        <button id="wallboardStartBtn" class="btn btn--primary"><i class="fa-solid fa-play"></i> Lancer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Barre de contrôle du wallboard -->
+<div id="wallboardBar" class="wallboard-bar hidden">
+  <div class="wallboard-bar__left">
+    <i class="fa-solid fa-tv"></i>
+    <span id="wallboardViewName">Vue globale</span>
+  </div>
+  <div class="wallboard-bar__center">
+    <button id="wallboardPrev" class="wallboard-ctrl"><i class="fa-solid fa-backward"></i></button>
+    <button id="wallboardPause" class="wallboard-ctrl"><i class="fa-solid fa-pause"></i></button>
+    <button id="wallboardNext" class="wallboard-ctrl"><i class="fa-solid fa-forward"></i></button>
+  </div>
+  <div class="wallboard-bar__right">
+    <button id="wallboardExit" class="wallboard-ctrl wallboard-ctrl--exit"><i class="fa-solid fa-xmark"></i> Quitter</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODALE DÉCONNEXION
+     ============================================================ -->
+<div id="logoutModal" class="modal hidden">
+  <div class="modal__overlay" data-close="logoutModal"></div>
+  <div class="modal__box modal__box--sm">
+    <div class="logout-modal__icon">
+      <i class="fa-solid fa-right-from-bracket"></i>
+    </div>
+    <div class="logout-modal__content">
+      <h3 class="logout-modal__title">Se déconnecter ?</h3>
+      <p class="logout-modal__text">
+        Vous allez être redirigé vers la page d'accueil et devrez choisir à nouveau votre pays.
+      </p>
+      <p class="logout-modal__hint">
+        <i class="fa-solid fa-circle-info"></i>
+        Vos sauvegardes, annotations et préférences seront conservées.
+      </p>
+    </div>
+    <div class="logout-modal__actions">
+      <button id="logoutCancelBtn" class="btn btn--ghost">
+        <i class="fa-solid fa-xmark"></i> Annuler
+      </button>
+      <button id="logoutConfirmBtn" class="btn btn--danger">
+        <i class="fa-solid fa-right-from-bracket"></i> Se déconnecter
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts JS -->
+<script src="assets/js/purify.min.js"></script>
+<script src="assets/js/xlsx.full.min.js"></script>
+<script src="assets/js/plotly.min.js"></script>
+<script src="assets/js/leaflet.js"></script>
+<script>
+  /* Injection du pays depuis l'URL avant le chargement du dashboard */
+  (function(){
+    const params = new URLSearchParams(window.location.search);
+    const country = params.get("country");
+    if(country){
+      try{ localStorage.setItem("pl_country", country.toUpperCase()); }catch(_){}
+    }
+  })();
+</script>
+<script src="assets/js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Packet Loss Intelligence — Menu</title>
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/home.css">
+</head>
+<body class="home-page">
+
+<!-- ============================================================
+     HEADER avec bouton retour
+     ============================================================ -->
+<header class="home-topbar">
+  <div class="home-topbar__inner">
+    <button id="backToHomeBtn" class="home-action home-action--with-label">
+      <i class="fa-solid fa-arrow-left"></i>
+      <span>Changer de pays</span>
+    </button>
+    <div class="home-brand home-brand--compact">
+      <div class="home-brand__logo">
+        <img src="assets/images/logo1.png" alt="NPM" class="home-brand__logo-img">
+      </div>
+      <div class="home-brand__name">
+        <h1>Packet Loss <span>Intelligence</span></h1>
+        <p id="menuCountryLabel">Chargement...</p>
+      </div>
+    </div>
+    <div class="home-topbar__actions">
+      <button id="darkModeBtn" class="home-action" title="Basculer le thème">
+        <i class="fa-solid fa-moon"></i>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO — Titre + Badge pays
+     ============================================================ -->
+<section class="home-hero">
+  <div class="home-hero__content">
+    <span class="home-hero__eyebrow" id="menuCountryBadge">
+      <i class="fa-solid fa-flag"></i> Chargement...
+    </span>
+    <h2 class="home-hero__title">
+      Que souhaitez-vous <span>visualiser</span> ?
+    </h2>
+    <p class="home-hero__subtitle">
+      Choisissez un module d'analyse pour démarrer votre consultation.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     GRILLE DES MODULES
+     ============================================================ -->
+<main class="home-container">
+  <div class="module-grid" id="moduleGrid">
+    <!-- Modules injectés par home.js -->
+  </div>
+</main>
+
+<script src="assets/js/home.js"></script>
+</body>
+</html>

@@ -1,41 +1,57 @@
 /* =========================================================
-   PACKET LOSS DASHBOARD — JS v20
+   PACKET LOSS DASHBOARD — JS v23 (complet multi-pays)
    ---------------------------------------------------------
-   Corrections v20 :
-   - initV19() appelée directement (les onglets, modales,
-     wallboard fonctionnent enfin)
-   - updateDataFreshness() appelée au boot et toutes les 60s
-   - Mode "HUB auto" : détecte les HUBs liés aux sites
-     analysés et affiche leurs voisins avec statut d'impact
-   - Amélioration lisibilité dark mode (les couleurs
-     viennent des CSS variables --chart-*)
-
-   Conservé :
-   - v19 : onglets Fiabilité/Corrélations/Heatmap/Prédictions,
-     wallboard, aide, alertes actives, marqueurs, zoom sync
-   - v18 : mode sombre, sauvegardes, annotations, seuils,
-     overlay, comparaison, alertes email
-   - v17 : sans export PDF/Image
+   HISTORIQUE DES VERSIONS :
+   - v10 : safeOn() défensif • init après DOMContentLoaded
+   - v11 : Clic sur marqueur → mode HUB actif • selectSite()
+   - v12 : dtick D1 → toutes les dates sur l'axe X
+   - v13 : Sélecteur Vue jour / Vue brute
    - v14 : KPI Taux de couverture
-   - v13 : Vue jour / Vue brute
-   - v12 : dtick D1 sur l'axe X
-   - v11 : Clic marqueur → mode HUB actif
+   - v15 : Refonte UI premium (glassmorphism)
+   - v16-v17 : Suppression export PDF/Image (bug html2canvas)
+   - v18 : Mode sombre, sauvegardes, annotations, seuils, overlay,
+           comparaison, alertes email
+   - v19 : Onglets (Fiabilité, Corrélations, Heatmap, Prédictions),
+           wallboard, aide, alertes actives
+   - v20 : HUB auto (détection automatique du HUB parent)
+   - v21 : Système de vues (Main / Advanced)
+   - v22 : Heatmap carte • Alertes actives cliquables
+   - v23 : Support multi-pays (CI, TG, BJ, NE, CF)
    ========================================================= */
 
 "use strict";
 
 /* =========================================================
-   CONSTANTES
+   CONFIGURATION MULTI-PAYS
+   ---------------------------------------------------------
+   Liste des pays disponibles dans l'application.
+   Le pays actif est déterminé par :
+   1. Le paramètre URL ?country=XX
+   2. Le localStorage pl_country
+   3. Fallback : CI (Côte d'Ivoire)
+   ========================================================= */
+const COUNTRY_MAP = {
+  CI: { flag:"🇨🇮", name:"Côte d'Ivoire", code:"CI" },
+  TG: { flag:"🇹🇬", name:"Togo",          code:"TG" },
+  BJ: { flag:"🇧🇯", name:"Bénin",         code:"BJ" },
+  NE: { flag:"🇳🇪", name:"Niger",         code:"NE" },
+  CF: { flag:"🇨🇫", name:"Centrafrique",  code:"CF" }
+};
+const DEFAULT_COUNTRY = "CI";
+
+/* =========================================================
+   CONSTANTES GLOBALES
    ========================================================= */
 const API_URL           = "api/packet_loss.php";
 const ALERTS_SAVE_URL   = "api/save_alerts.php";
 const ALERTS_TEST_URL   = "api/test_alert.php";
 const LOCATION_URL      = "data/sites_location.json";
 const DEFAULT_THRESHOLD = 0.1;
-const HISTORICAL_SAMPLES = 7;
 
+/* Clés localStorage */
 const LS_KEYS = {
   THEME:       "pl_theme",
+  COUNTRY:     "pl_country",
   SAVED:       "pl_saved_analyses",
   ANNOTATIONS: "pl_annotations",
   THRESHOLDS:  "pl_site_thresholds",
@@ -43,9 +59,11 @@ const LS_KEYS = {
   OVERLAY:     "pl_overlay_sites",
   AUTO_HUB:    "pl_auto_hub",
   WB_DURATION: "pl_wallboard_duration",
-  WB_REFRESH:  "pl_wallboard_refresh"
+  WB_REFRESH:  "pl_wallboard_refresh",
+  BASE_LAYER:  "pl_base_layer"
 };
 
+/* URLs des GeoJSON contenant les liens réseau */
 const NETWORK_LINKS_URLS = {
   FH:   "data/lien_fh.geojson",
   FO:   "data/lien_fo.geojson",
@@ -53,21 +71,25 @@ const NETWORK_LINKS_URLS = {
   TOPO: "data/lien_wdm_topology.geojson"
 };
 
+/* Couleurs et libellés des liens */
 const LINK_COLORS = { FH:"#f28c28", FO:"#a719d2", TR:"#2af010", TOPO:"#61daff" };
 const LINK_LABELS = { FH:"FH", FO:"FO", TR:"Transmission", TOPO:"WDM" };
+
+/* Centre et zoom par défaut de la carte (Côte d'Ivoire) */
 const CI_CENTER = [7.54, -5.55];
 const CI_ZOOM   = 7;
 
+/* Palette de couleurs pour les graphiques superposés */
 const OVERLAY_COLORS = [
   "#2563eb","#f43f5e","#10b981","#f97316","#8b5cf6","#0ea5e9",
   "#a719d2","#eab308","#ec4899","#14b8a6","#f59e0b","#6366f1"
 ];
 
 /* =========================================================
-   ÉTAT GLOBAL
+   ÉTAT GLOBAL — Variables partagées entre fonctions
    ========================================================= */
 let locationIndex    = {};
-let networkLinks     = { FH: [], FO: [], TR: [], TOPO: [] };
+let networkLinks     = { FH:[], FO:[], TR:[], TOPO:[] };
 let siteLinkIndex    = {};
 let map              = null;
 let mapMarkers       = [];
@@ -77,27 +99,36 @@ let lastFilteredRows = [];
 let lastSiteStats    = [];
 let chartViewMode    = "day";
 
-let siteTrends    = {};
-let networkGraph  = null;
-let hubScores     = [];
-let selectedHub   = null;
+let siteTrends       = {};
+let networkGraph     = null;
+let hubScores        = [];
+let selectedHub      = null;
 
+/* État seuils */
 let siteThresholds   = {};
 let defaultThreshold = DEFAULT_THRESHOLD;
+
+/* État overlay */
 let overlaySites     = [];
+
+/* État annotations */
 let currentAnnotations = {};
 let pendingAnnotation  = null;
 
-let compareMode      = false;
-let compareResult    = null;
+/* État comparaison */
+let compareMode    = false;
+let compareResult  = null;
 
+/* État onglets avancés */
 let correlationMatrix = null;
 let correlationSites  = [];
-let activeTab         = "sites";
+let activeTab         = "reliability";
 
-let autoHubMode      = true;
-let autoHubData      = null;
+/* État HUB auto */
+let autoHubMode = true;
+let autoHubData = null;
 
+/* État Wallboard */
 let wallboardState = {
   active: false,
   slideIndex: 0,
@@ -107,20 +138,33 @@ let wallboardState = {
   slides: []
 };
 
-let rectFilterActive = false;
-let rectFilter = null;
-
-/* Heatmap sur la carte */
-let heatmapLayer = null;
-let heatmapActive = false;
-
+/* État filtres carte */
 const mapFilterState = {
   vendor:"ALL", linkType:"ALL",
   showSites:true, showFO:true, showFH:true, showTR:true, showTOPO:true
 };
 
-const hubFilterState = { active:false, hubSite:null, neighborSet:new Set() };
+/* État filtre HUB */
+const hubFilterState = {
+  active: false,
+  hubSite: null,
+  neighborSet: new Set()
+};
 
+/* État heatmap sur la carte */
+let heatmapLayer  = null;
+let heatmapActive = false;
+
+/* État fond de carte */
+let currentBaseLayer = null;
+let currentBaseLayerType = "osm";
+
+/* État pays actif */
+let activeCountry = DEFAULT_COUNTRY;
+
+/* =========================================================
+   RACCOURCI DOM
+   ========================================================= */
 const $ = id => document.getElementById(id);
 
 /* =========================================================
@@ -137,6 +181,43 @@ function storageSet(key, value){
 }
 
 /* =========================================================
+   GESTION DU PAYS ACTIF
+   ---------------------------------------------------------
+   Détermine le pays depuis l'URL ou le localStorage.
+   Met à jour le badge dans la topbar.
+   ========================================================= */
+function resolveActiveCountry(){
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("country");
+  if(fromUrl){
+    const code = fromUrl.toUpperCase();
+    if(COUNTRY_MAP[code]){
+      storageSet(LS_KEYS.COUNTRY, code);
+      return code;
+    }
+  }
+  const saved = storageGet(LS_KEYS.COUNTRY, null);
+  if(saved && COUNTRY_MAP[saved]) return saved;
+  return DEFAULT_COUNTRY;
+}
+
+function updateTopbarCountry(){
+  const info = COUNTRY_MAP[activeCountry] || COUNTRY_MAP[DEFAULT_COUNTRY];
+  const flagEl = $("topbarCountryFlag");
+  const nameEl = $("topbarCountryName");
+  if(flagEl) flagEl.textContent = info.flag;
+  if(nameEl) nameEl.textContent = info.name;
+
+  /* Met à jour le titre de la page */
+  document.title = `Packet Loss — ${info.name}`;
+}
+
+/* Retour au menu du pays actif */
+function goBackToMenu(){
+  window.location.href = `menu.html?country=${encodeURIComponent(activeCountry)}`;
+}
+
+/* =========================================================
    SEUILS PAR SITE
    ========================================================= */
 function thresholdFor(site){
@@ -148,7 +229,7 @@ function thresholdFor(site){
 }
 
 /* =========================================================
-   HELPER DÉFENSIF
+   HELPER DÉFENSIF — safeOn
    ========================================================= */
 function safeOn(id, event, handler){
   const el = document.getElementById(id);
@@ -165,20 +246,20 @@ function checkRequiredElements(){
     "periodPreset","startDate","endDate","hourRange","vendor",
     "sitesFile","sitesPaste","excelFile","sitesFileName",
     "analyzeBtn","resetBtn","requestInfo","message",
-    "dashboard","emptyState",
+    "mainView","advancedView","emptyState",
     "kSitesRequested","kSitesData","kRows","kMax","kAvg","kImpacted",
     "kNoData","kNoDataKpi","kDegrading","kStable","kImproving",
     "summaryVendor","summaryHourRange","summaryPeriod","summaryThreshold",
     "noDataPanel","noDataCount","noDataList",
     "globalChart","worstTableBody",
     "mapVendorFilter","mapLinkFilter",
-    "toggleSites","toggleFO","toggleFH","toggleTR","toggleTOPO","toggleHubs",
+    "toggleSites","toggleFO","toggleFH","toggleTR","toggleTOPO","toggleHubs","toggleHeatmap",
     "mapLayout","map","mapInfo",
     "hubPanelToggle","hubPanelToggleFloat","hubList","hubDetails",
     "siteSearch","siteSort","trendFilter","siteGrid",
     "viewToggle",
     "darkModeBtn","savedBtn","alertsBtn",
-    "saveAnalysisBtn","overlayBtn","autoHubBtn",
+    "saveAnalysisBtn","autoHubBtn","advancedViewBtn",
     "compareToggleBtn","compareBlock","thresholdsBtn"
   ];
   const missing = required.filter(id => !document.getElementById(id));
@@ -208,7 +289,7 @@ function checkDependencies(){
   if(missing.length){
     const msg = "Bibliothèques critiques manquantes : " + missing.join(", ");
     console.error(msg);
-    const box = document.getElementById("message");
+    const box = $("message");
     if(box){ box.textContent = "⚠️ " + msg; box.classList.remove("hidden"); }
   }
 }
@@ -290,6 +371,21 @@ function countUniqueDays(rows){
   rows.forEach(r => { const dt = makeDateTime(r); if(dt) days.add(dt.slice(0,10)); });
   return days.size;
 }
+
+/* =========================================================
+   COULEURS DES CHARTS SELON LE THÈME
+   ========================================================= */
+function isDark(){
+  return document.documentElement.getAttribute("data-theme") === "dark";
+}
+function getChartBg(){ return isDark() ? "#131c2e" : "#ffffff"; }
+function getChartGridColor(){ return isDark() ? "#1f2b44" : "#f8fafc"; }
+function getChartLineColor(){ return isDark() ? "#2d3b5a" : "#e2e8f0"; }
+function getChartTextColor(){ return isDark() ? "#cbd5e1" : "#64748b"; }
+
+/* =========================================================
+   CONFIG X-AXIS
+   ========================================================= */
 function buildXAxisConfigDay(rows, options = {}){
   const nDays = countUniqueDays(rows);
   const tickangle = nDays > 12 ? -45 : 0;
@@ -331,15 +427,6 @@ function computeFixedYRange(rows, site){
   return [0, upper];
 }
 
-/* Couleurs de charts selon le thème */
-function isDark(){
-  return document.documentElement.getAttribute("data-theme") === "dark";
-}
-function getChartBg(){ return isDark() ? "#131c2e" : "#ffffff"; }
-function getChartGridColor(){ return isDark() ? "#1f2b44" : "#f8fafc"; }
-function getChartLineColor(){ return isDark() ? "#2d3b5a" : "#e2e8f0"; }
-function getChartTextColor(){ return isDark() ? "#cbd5e1" : "#64748b"; }
-
 /* =========================================================
    MODE SOMBRE
    ========================================================= */
@@ -350,14 +437,14 @@ function applyTheme(theme){
     const i = btn.querySelector("i");
     if(i) i.className = theme === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
   }
-  /* Redessine tous les charts si une analyse existe */
   if(lastResult && lastSiteStats.length){
     renderGlobalChart(lastFilteredRows);
     renderSiteGrid(lastSiteStats, lastFilteredRows);
     if(correlationSites.length && activeTab === "correlation") renderCorrelation();
     if(activeTab === "heatmap") renderHeatmap();
-    if(!$("overlayPanel")?.classList.contains("hidden")) renderOverlayChart();
+    if(!$("overlayChart")?.classList.contains("hidden")) renderOverlayChart();
     if(compareResult) renderCompareResults();
+    if(heatmapActive) renderMapHeatmap();
   }
 }
 function initTheme(){
@@ -372,7 +459,7 @@ function initTheme(){
 }
 
 /* =========================================================
-   SEUILS PAR SITE — INIT
+   SEUILS PAR SITE
    ========================================================= */
 function initThresholds(){
   siteThresholds   = storageGet(LS_KEYS.THRESHOLDS, {});
@@ -394,7 +481,7 @@ function renderThresholdsList(){
     .filter(([s]) => !search || s.includes(search))
     .sort((a,b) => a[0].localeCompare(b[0]));
   if(!entries.length){
-    list.innerHTML = `<p class="thresholds-list__empty">Aucun seuil personnalisé. Utilisez le formulaire ci-dessous.</p>`;
+    list.innerHTML = `<p class="thresholds-list__empty">Aucun seuil personnalisé.</p>`;
     return;
   }
   list.innerHTML = entries.map(([site, val]) => `
@@ -474,6 +561,7 @@ function saveCurrentAnalysis(){
     id: "an_" + Date.now(),
     name,
     date: new Date().toISOString(),
+    country: activeCountry,
     sites: parseSitesText($("sitesPaste")?.value || ""),
     start: $("startDate")?.value || "",
     end: $("endDate")?.value || "",
@@ -492,16 +580,19 @@ function renderSavedList(){
   if(!all.length){
     list.innerHTML = `<div class="saved-empty">
       <i class="fa-solid fa-bookmark"></i>
-      Aucune analyse sauvegardée pour le moment.<br>
+      Aucune analyse sauvegardée.<br>
       Lancez une analyse puis cliquez sur <strong>Sauvegarder</strong>.
     </div>`;
     return;
   }
-  list.innerHTML = all.map(a => `
+  list.innerHTML = all.map(a => {
+    const cInfo = COUNTRY_MAP[a.country] || COUNTRY_MAP[DEFAULT_COUNTRY];
+    return `
     <div class="saved-item" data-id="${escapeHtml(a.id)}">
       <div class="saved-item__main">
         <div class="saved-item__name">${escapeHtml(a.name)}</div>
         <div class="saved-item__meta">
+          <span><i class="fa-solid fa-flag"></i> ${cInfo.flag} ${cInfo.name}</span>
           <span><i class="fa-regular fa-calendar"></i> ${formatDateFR(a.start)} → ${formatDateFR(a.end)}</span>
           <span><i class="fa-solid fa-tower-broadcast"></i> ${escapeHtml(a.vendor)}</span>
           <span><i class="fa-solid fa-location-dot"></i> ${a.sites.length} site(s)</span>
@@ -515,7 +606,8 @@ function renderSavedList(){
           <i class="fa-solid fa-trash"></i>
         </button>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   list.querySelectorAll("[data-load]").forEach(btn => {
     btn.addEventListener("click", () => loadSavedAnalysis(btn.dataset.load));
   });
@@ -602,18 +694,10 @@ function bindAnnotationModal(){
 }
 
 /* =========================================================
-   MODALES
+   MODALES — Helpers
    ========================================================= */
-function openModal(id){
-  const m = $(id);
-  if(!m) return;
-  m.classList.remove("hidden");
-}
-function closeModal(id){
-  const m = $(id);
-  if(!m) return;
-  m.classList.add("hidden");
-}
+function openModal(id){ const m = $(id); if(m) m.classList.remove("hidden"); }
+function closeModal(id){ const m = $(id); if(m) m.classList.add("hidden"); }
 function bindModalClosers(){
   document.querySelectorAll("[data-close]").forEach(el => {
     el.addEventListener("click", () => closeModal(el.dataset.close));
@@ -652,7 +736,7 @@ function initPeriod(){
 }
 
 /* =========================================================
-   IMPORTS
+   IMPORTS FICHIERS
    ========================================================= */
 safeOn("sitesFile", "change", async e => {
   const file = e.target.files[0]; if(!file) return;
@@ -681,7 +765,7 @@ safeOn("excelFile", "change", async e => {
 });
 
 /* =========================================================
-   LOCALISATION + LIENS
+   CHARGEMENT LOCALISATION + LIENS
    ========================================================= */
 async function loadLocations(){
   try{
@@ -747,7 +831,7 @@ function filterRowsByHour(rows, hourRange){
 }
 
 /* =========================================================
-   ANALYSE
+   ANALYSE — Appel API
    ========================================================= */
 async function runAnalysis(){
   clearMessage();
@@ -767,14 +851,15 @@ async function runAnalysis(){
   const infoEl = $("requestInfo");
   if(infoEl){
     infoEl.classList.remove("hidden");
-    infoEl.textContent = `${sites.length} site(s) • ${start} → ${end}`;
+    const cInfo = COUNTRY_MAP[activeCountry] || COUNTRY_MAP[DEFAULT_COUNTRY];
+    infoEl.textContent = `${cInfo.flag} ${cInfo.name} • ${sites.length} site(s) • ${start} → ${end}`;
   }
 
   try{
     const response = await fetch(API_URL,{
       method:"POST",
       headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ sites, vendor, start_date:start, end_date:end })
+      body: JSON.stringify({ sites, vendor, start_date:start, end_date:end, country: activeCountry })
     });
     const result = await response.json();
     if(!response.ok || !result.success) throw new Error(result.message || "Erreur API.");
@@ -791,13 +876,15 @@ async function runAnalysis(){
 }
 
 /* =========================================================
-   RENDU DU DASHBOARD
+   RENDU DASHBOARD
    ========================================================= */
 function renderDashboard(result){
-  const dash  = $("dashboard");
-  const empty = $("emptyState");
-  if(dash) dash.classList.remove("hidden");
-  if(empty) empty.classList.add("hidden");
+  const mainView = $("mainView");
+  const advView  = $("advancedView");
+  const empty    = $("emptyState");
+  if(mainView) mainView.classList.remove("hidden");
+  if(advView)  advView.classList.add("hidden");
+  if(empty)    empty.classList.add("hidden");
   clearHubFilter();
 
   const hourRange    = $("hourRange")?.value || "all";
@@ -834,14 +921,11 @@ function renderDashboard(result){
 
   const summaryVendor = $("summaryVendor");
   if(summaryVendor) summaryVendor.textContent = result.vendor==="ALL" ? "Tous" : result.vendor;
-
   const summaryThreshold = $("summaryThreshold");
   if(summaryThreshold) summaryThreshold.textContent = defaultThreshold.toFixed(2) + "%";
-
   const hourLabels = { "all":"Toute la journée","00-06":"Nuit","06-12":"Matin","12-18":"Après-midi","18-24":"Soir" };
   const summaryHour = $("summaryHourRange");
   if(summaryHour) summaryHour.textContent = hourLabels[hourRange] || "-";
-
   const summaryPeriod = $("summaryPeriod");
   if(summaryPeriod) summaryPeriod.textContent =
     `${formatDateFR(result.start_date)} → ${formatDateFR(result.end_date)}`;
@@ -856,13 +940,9 @@ function renderDashboard(result){
 
   renderSiteGrid(siteStats, filteredRows);
 
-  /* Nouveau : mode HUB automatique */
   if(autoHubMode) renderHubsForAnalyzedSites();
 
-  /* Met à jour la fraîcheur */
   updateDataFreshness();
-
-  /* Rend les onglets actifs */
   onDashboardRendered();
 }
 
@@ -926,10 +1006,7 @@ function recomputeSiteStats(rawSites, rows){
 function computeDegradedDuration(siteRows, site){
   const thr = site ? thresholdFor(site) : defaultThreshold;
   if(!siteRows || !siteRows.length) return { totalHours:0, longestRun:0, pct:0, totalMeasured:0 };
-  const sorted = [...siteRows].sort((a,b) => {
-    const da = makeDateTime(a) || "", db = makeDateTime(b) || "";
-    return da.localeCompare(db);
-  });
+  const sorted = [...siteRows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
   let totalDegraded = 0, longestRun = 0, currentRun = 0, prevTs = null;
   const ONE_HOUR = 60 * 60 * 1000;
   const MAX_GAP = ONE_HOUR * 1.5;
@@ -1086,21 +1163,63 @@ function getScoreBadge(score){
 }
 
 /* =========================================================
-   CARTE — INIT
+   CARTE — Initialisation + fond de carte
    ========================================================= */
 function initMap(){
   if(map) return;
   const mapEl = $("map");
   if(!mapEl) return;
   map = L.map("map",{
-    center:CI_CENTER, zoom:CI_ZOOM, minZoom:6, maxZoom:14,
+    center:CI_CENTER, zoom:CI_ZOOM, minZoom:6, maxZoom:18,
     maxBounds:[[4.0,-9.0],[11.0,-1.5]], maxBoundsViscosity:0.85,
     preferCanvas: true
   });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    attribution:"© OpenStreetMap", crossOrigin:true
-  }).addTo(map);
+  applyBaseLayer("osm");
 }
+function applyBaseLayer(type){
+  if(!map) return;
+  currentBaseLayerType = type;
+  if(currentBaseLayer){ map.removeLayer(currentBaseLayer); currentBaseLayer = null; }
+  if(map._hybridLabelsLayer){ map.removeLayer(map._hybridLabelsLayer); map._hybridLabelsLayer = null; }
+  if(map._hybridLabelsLayer2){ map.removeLayer(map._hybridLabelsLayer2); map._hybridLabelsLayer2 = null; }
+
+  if(type === "osm"){
+    currentBaseLayer = L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { attribution:"© OpenStreetMap", crossOrigin:true, maxZoom:19 }
+    ).addTo(map);
+  } else if(type === "satellite"){
+    currentBaseLayer = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { attribution:"© Esri, Maxar, Earthstar Geographics", crossOrigin:true, maxZoom:19 }
+    ).addTo(map);
+  } else if(type === "hybrid"){
+    currentBaseLayer = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { attribution:"© Esri, Maxar, Earthstar Geographics", crossOrigin:true, maxZoom:19 }
+    ).addTo(map);
+    map._hybridLabelsLayer = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+      { crossOrigin:true, maxZoom:19, opacity:0.9 }
+    ).addTo(map);
+    map._hybridLabelsLayer2 = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { crossOrigin:true, maxZoom:19, opacity:0.85 }
+    ).addTo(map);
+  }
+  document.querySelectorAll(".base-layer-btn").forEach(btn => {
+    btn.classList.toggle("is-active", btn.dataset.layer === type);
+  });
+  storageSet(LS_KEYS.BASE_LAYER, type);
+}
+function bindBaseLayerButtons(){
+  document.querySelectorAll(".base-layer-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyBaseLayer(btn.dataset.layer));
+  });
+  const saved = storageGet(LS_KEYS.BASE_LAYER, "osm");
+  if(saved !== "osm") applyBaseLayer(saved);
+}
+
 function renderNetworkLinksOnMap(){
   if(!map) return;
   Object.values(mapLinkLayers).forEach(layer => { if(layer) layer.remove(); });
@@ -1207,26 +1326,15 @@ function renderMapMarkers(sites){
 function renderMap(sites){
   initMap();
   if(!map) return;
-
-  if(!hubFilterState.active && !heatmapActive){
-    map.setView(CI_CENTER, CI_ZOOM, { animate:false });
-  }
-
-  /* Si heatmap active, ne pas afficher les couches classiques */
-  if(heatmapActive){
-    renderMapHeatmap();
-    return;
-  }
-
+  if(!hubFilterState.active && !heatmapActive) map.setView(CI_CENTER, CI_ZOOM, { animate:false });
+  if(heatmapActive){ renderMapHeatmap(); return; }
   renderNetworkLinksOnMap();
-
-  if(mapFilterState.showSites){
-    renderMapMarkers(sites);
-  } else {
+  if(mapFilterState.showSites) renderMapMarkers(sites);
+  else {
     mapMarkers.forEach(m => m.remove());
     mapMarkers = [];
     const infoEl = $("mapInfo");
-    if(infoEl) infoEl.textContent = "Couche « Sites » désactivée";
+    if(infoEl) infoEl.textContent = "Couche Sites désactivée";
   }
 }
 safeOn("mapVendorFilter", "change", e => { mapFilterState.vendor = e.target.value; if(lastResult) renderMap(lastSiteStats); });
@@ -1236,6 +1344,109 @@ safeOn("toggleFO", "change", e => { mapFilterState.showFO = e.target.checked; re
 safeOn("toggleFH", "change", e => { mapFilterState.showFH = e.target.checked; renderNetworkLinksOnMap(); });
 safeOn("toggleTR", "change", e => { mapFilterState.showTR = e.target.checked; renderNetworkLinksOnMap(); });
 safeOn("toggleTOPO", "change", e => { mapFilterState.showTOPO = e.target.checked; renderNetworkLinksOnMap(); });
+
+/* =========================================================
+   HEATMAP SUR LA CARTE
+   ========================================================= */
+function renderMapHeatmap(){
+  if(!map) return;
+  if(heatmapLayer){ map.removeLayer(heatmapLayer); heatmapLayer = null; }
+  const data = (lastSiteStats || []).map(s => {
+    const code = normalizeSite(s.Site);
+    const loc = locationIndex[code];
+    if(!loc) return null;
+    const lat = Number(loc.lat), lng = Number(loc.lng);
+    if(!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return {
+      site: code, lat, lng,
+      value: Number(s.avg_packet_loss) || 0,
+      threshold: thresholdFor(code),
+      region: loc.region || "",
+      localite: loc.localite || ""
+    };
+  }).filter(Boolean);
+  if(!data.length){ showMessage("Aucune donnée à afficher en heatmap."); return; }
+  const maxVal = Math.max(...data.map(d => d.value), 0.01);
+  function colorForValue(v){
+    const ratio = Math.min(1, v / maxVal);
+    const hue = 120 - ratio * 120;
+    return `hsl(${hue}, ${70 + ratio*20}%, ${55 - ratio*10}%)`;
+  }
+  function radiusForValue(v){
+    const ratio = Math.min(1, v / maxVal);
+    return 15000 + ratio * 45000;
+  }
+  const layers = [];
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  sorted.forEach(d => {
+    const color = colorForValue(d.value);
+    const radius = radiusForValue(d.value);
+    const isImpacted = d.value > d.threshold;
+    const halo = L.circle([d.lat, d.lng], { radius: radius*1.4, stroke:false, fillColor:color, fillOpacity:0.10, interactive:false });
+    const circle = L.circle([d.lat, d.lng], { radius, stroke:true, color, weight:2, opacity:0.8, fillColor:color, fillOpacity:0.35, interactive:true });
+    const statusLabel = isImpacted ? "Impacté" : "Sain";
+    const statusColor = isImpacted ? "#be123c" : "#047857";
+    circle.bindTooltip(`
+      <div style="font-family:Inter,Segoe UI,Arial,sans-serif">
+        <div style="font-weight:900;color:#fbbf24;margin-bottom:5px;font-size:13.5px">${escapeHtml(d.site)}</div>
+        <div style="font-weight:800;font-size:14px;margin-bottom:4px">${formatNumber(d.value)}%</div>
+        <div style="font-size:10.5px;opacity:.85;margin-bottom:3px">Seuil : ${d.threshold.toFixed(2)}%</div>
+        <div style="font-size:10.5px;font-weight:800;color:${statusColor};text-transform:uppercase;letter-spacing:.05em">${statusLabel}</div>
+        <div style="font-size:10px;opacity:.7;margin-top:5px">${escapeHtml(d.region)}${d.localite ? " • " + escapeHtml(d.localite) : ""}</div>
+      </div>`,
+      { sticky:true, direction:"top", className:"map-hover-tooltip", interactive:false });
+    circle.on("click", ev => { if(ev && ev.originalEvent) L.DomEvent.stopPropagation(ev); selectSite(d.site); });
+    layers.push(halo, circle);
+  });
+  heatmapLayer = L.layerGroup(layers).addTo(map);
+  showHeatmapLegend(maxVal);
+}
+function showHeatmapLegend(maxVal){
+  hideHeatmapLegend();
+  const mapPanel = $("mapPanel");
+  if(!mapPanel) return;
+  const legend = document.createElement("div");
+  legend.className = "map-heatmap-legend";
+  legend.id = "mapHeatmapLegend";
+  legend.innerHTML = `
+    <div class="map-heatmap-legend__title"><i class="fa-solid fa-fire"></i> Heatmap Packet Loss</div>
+    <div class="map-heatmap-legend__scale">
+      <span>0%</span><span class="map-heatmap-legend__gradient"></span><span>${formatNumber(maxVal, 2)}%</span>
+    </div>
+    <div class="map-heatmap-legend__labels"><span>Faible</span><span>Élevé</span></div>
+    <div class="map-heatmap-legend__info">
+      <i class="fa-solid fa-circle-info"></i> Rayon et couleur proportionnels au taux moyen.
+    </div>`;
+  mapPanel.appendChild(legend);
+}
+function hideHeatmapLegend(){
+  const el = $("mapHeatmapLegend");
+  if(el) el.remove();
+}
+function toggleHeatmap(show){
+  heatmapActive = show !== undefined ? show : !heatmapActive;
+  const chk = $("toggleHeatmap");
+  if(chk) chk.checked = heatmapActive;
+  if(heatmapActive){
+    mapMarkers.forEach(m => m.remove());
+    mapMarkers = [];
+    Object.values(mapLinkLayers).forEach(layer => { if(layer) layer.remove(); });
+    mapLinkLayers = {};
+    renderMapHeatmap();
+  } else {
+    if(heatmapLayer){ map.removeLayer(heatmapLayer); heatmapLayer = null; }
+    hideHeatmapLegend();
+    if(lastResult){
+      renderNetworkLinksOnMap();
+      if(mapFilterState.showSites) renderMapMarkers(lastSiteStats);
+    }
+  }
+}
+function bindHeatmapToggle(){
+  const chk = $("toggleHeatmap");
+  if(!chk) return;
+  chk.addEventListener("change", e => toggleHeatmap(e.target.checked));
+}
 
 /* =========================================================
    GRAPHE RÉSEAU
@@ -1254,7 +1465,7 @@ function buildNetworkGraph(){
       if(!adjacency.has(to)) adjacency.set(to, new Set());
       adjacency.get(from).add(to);
       adjacency.get(to).add(from);
-      edges.push({ from, to, type, name: f.properties?.name || "" });
+      edges.push({ from, to, type });
     }
   }
   networkGraph = { adjacency, edges };
@@ -1264,60 +1475,23 @@ function computeDegree(adjacency){
   adjacency.forEach((n, node) => d.set(node, n.size));
   return d;
 }
-function computeBetweenness(adjacency){
-  const nodes = [...adjacency.keys()];
-  const n = nodes.length;
-  if(n > 600){
-    const degree = computeDegree(adjacency);
-    const maxDeg = Math.max(...degree.values()) || 1;
-    const CB = new Map();
-    degree.forEach((d, node) => CB.set(node, d/maxDeg));
-    return CB;
-  }
-  const CB = new Map(nodes.map(nd => [nd, 0]));
-  nodes.forEach(source => {
-    const stack = [], pred = new Map(nodes.map(nd => [nd, []]));
-    const sigma = new Map(nodes.map(nd => [nd, 0]));
-    const dist = new Map(nodes.map(nd => [nd, -1]));
-    sigma.set(source, 1); dist.set(source, 0);
-    const queue = [source];
-    while(queue.length){
-      const v = queue.shift(); stack.push(v);
-      (adjacency.get(v) || new Set()).forEach(w => {
-        if(dist.get(w) < 0){ dist.set(w, dist.get(v)+1); queue.push(w); }
-        if(dist.get(w) === dist.get(v)+1){ sigma.set(w, sigma.get(w)+sigma.get(v)); pred.get(w).push(v); }
-      });
-    }
-    const delta = new Map(nodes.map(nd => [nd, 0]));
-    while(stack.length){
-      const w = stack.pop();
-      pred.get(w).forEach(v => { delta.set(v, delta.get(v) + (sigma.get(v)/sigma.get(w))*(1+delta.get(w))); });
-      if(w !== source) CB.set(w, CB.get(w) + delta.get(w));
-    }
-  });
-  const maxCB = Math.max(...CB.values()) || 1;
-  CB.forEach((v,k) => CB.set(k, v/maxCB));
-  return CB;
-}
 function computeHubScores(rows){
   if(!networkGraph) return [];
   const { adjacency } = networkGraph;
   if(!adjacency.size) return [];
   const degree = computeDegree(adjacency);
-  const betweenness = computeBetweenness(adjacency);
   const maxDeg = Math.max(...degree.values()) || 1;
   const scores = [];
   adjacency.forEach((neighbors, site) => {
     const deg = degree.get(site) || 0;
-    const score = 0.7 * (deg / maxDeg) + 0.3 * (betweenness.get(site) || 0);
-    scores.push({ site, score, degree: deg, neighbors: [...neighbors] });
+    scores.push({ site, score: deg / maxDeg, degree: deg, neighbors: [...neighbors] });
   });
   scores.sort((a,b) => b.score - a.score);
   return scores.filter(s => s.degree >= 2 && s.score > 0.05);
 }
 
 /* =========================================================
-   PANNEAU HUB CLASSIQUE
+   PANNEAU HUB — Mode classique
    ========================================================= */
 function renderHubPanel(siteStats){
   hubScores = computeHubScores(lastFilteredRows || []);
@@ -1325,12 +1499,11 @@ function renderHubPanel(siteStats){
   const details = $("hubDetails");
   if(!hubList) return;
   if(details){ details.classList.add("hidden"); details.innerHTML = ""; }
+  if(autoHubMode) return;
   if(!hubScores.length){
     hubList.innerHTML = `<div class="hub-empty"><i class="fa-solid fa-diagram-project"></i><p>Aucun HUB identifié.</p></div>`;
     return;
   }
-  /* Si mode auto, on n'affiche rien ici : on laisse renderHubsForAnalyzedSites gérer */
-  if(autoHubMode) return;
   const top = hubScores.slice(0, 8);
   hubList.innerHTML = top.map((hub, i) => {
     const linkInfo = getSiteLinkInfo(hub.site);
@@ -1361,102 +1534,59 @@ function renderHubPanel(siteStats){
 }
 
 /* =========================================================
-   HUB AUTOMATIQUE (nouveau)
-   ---------------------------------------------------------
-   Pour chaque site analysé, on cherche son HUB parent
-   (site central qui le contient dans ses voisins), puis on
-   regroupe par HUB avec la liste des sites liés et leur
-   statut d'impact.
+   HUB AUTOMATIQUE
    ========================================================= */
 function computeAutoHubData(){
   if(!networkGraph || !networkGraph.adjacency.size) return null;
   if(!lastSiteStats || !lastSiteStats.length) return null;
-
   const analyzedSites = new Set(lastSiteStats.map(s => normalizeSite(s.Site)));
   const statBySite = {};
   lastSiteStats.forEach(s => { statBySite[normalizeSite(s.Site)] = s; });
-
-  /* Pour chaque site analysé, on cherche son HUB parent :
-     parmi ses voisins directs, celui qui a le plus de connexions. */
-  const hubMap = {}; // hubCode -> { sites: Set, isAnalyzed: bool }
-
+  const hubMap = {};
   analyzedSites.forEach(siteCode => {
     const neighbors = networkGraph.adjacency.has(siteCode)
       ? [...networkGraph.adjacency.get(siteCode)].map(normalizeSite)
       : [];
-
-    /* Trouve le HUB parent (le voisin avec le plus de degré) */
     let bestHub = null, bestDeg = 0;
     neighbors.forEach(n => {
       const deg = networkGraph.adjacency.get(n)?.size || 0;
       if(deg > bestDeg){ bestDeg = deg; bestHub = n; }
     });
-
-    /* Si le site lui-même est un HUB (deg élevé), on le prend comme son propre HUB */
     const ownDeg = networkGraph.adjacency.get(siteCode)?.size || 0;
-    if(ownDeg >= 3 && (!bestHub || ownDeg >= bestDeg)){
-      bestHub = siteCode;
-    }
-
+    if(ownDeg >= 3 && (!bestHub || ownDeg >= bestDeg)) bestHub = siteCode;
     if(!bestHub) return;
-
-    if(!hubMap[bestHub]){
-      hubMap[bestHub] = {
-        site: bestHub,
-        sites: new Set(),
-        isAnalyzed: analyzedSites.has(bestHub)
-      };
-    }
+    if(!hubMap[bestHub]) hubMap[bestHub] = { site: bestHub, sites: new Set(), isAnalyzed: analyzedSites.has(bestHub) };
     hubMap[bestHub].sites.add(siteCode);
   });
-
-  /* Pour chaque HUB, ajoute les voisins directs qui ne sont pas déjà dedans */
   Object.values(hubMap).forEach(hub => {
     const neighbors = networkGraph.adjacency.has(hub.site)
       ? [...networkGraph.adjacency.get(hub.site)].map(normalizeSite)
       : [];
     neighbors.forEach(n => hub.sites.add(n));
   });
-
-  /* Construit la structure finale */
   const hubs = Object.values(hubMap).map(hub => {
     const hubStat = statBySite[hub.site];
     const hubThr = thresholdFor(hub.site);
-    const hubImpacted = hubStat
-      ? Number(hubStat.avg_packet_loss) > hubThr
-      : null;
+    const hubImpacted = hubStat ? Number(hubStat.avg_packet_loss) > hubThr : null;
     const linkedSites = [...hub.sites]
       .filter(s => s !== hub.site)
       .map(site => {
         const stat = statBySite[site];
         const thr = thresholdFor(site);
-        if(!stat){
-          return {
-            site, thr,
-            status: "unknown",
-            avg: null,
-            isAnalyzed: false
-          };
-        }
+        if(!stat) return { site, thr, status:"unknown", avg:null, isAnalyzed:false };
         return {
           site, thr,
           status: Number(stat.avg_packet_loss) > thr ? "impacted" : "ok",
           avg: Number(stat.avg_packet_loss),
-          max: Number(stat.max_packet_loss),
           vendor: stat.vendor,
           isAnalyzed: analyzedSites.has(site)
         };
       })
-      .sort((a, b) => {
-        /* Priorité : impactés > inconnus > ok, puis par valeur décroissante */
-        const p = { impacted: 0, unknown: 1, ok: 2 };
+      .sort((a,b) => {
+        const p = { impacted:0, unknown:1, ok:2 };
         if(p[a.status] !== p[b.status]) return p[a.status] - p[b.status];
         return (b.avg || 0) - (a.avg || 0);
       });
-
-    const impactedCount = linkedSites.filter(s => s.status === "impacted").length;
-    const okCount = linkedSites.filter(s => s.status === "ok").length;
-
     return {
       site: hub.site,
       isAnalyzed: hub.isAnalyzed,
@@ -1464,39 +1594,28 @@ function computeAutoHubData(){
       hubAvg: hubStat ? Number(hubStat.avg_packet_loss) : null,
       hubThr,
       linkedSites,
-      impactedCount,
-      okCount,
+      impactedCount: linkedSites.filter(s => s.status === "impacted").length,
+      okCount: linkedSites.filter(s => s.status === "ok").length,
       totalLinked: linkedSites.length
     };
   });
-
-  /* Trie : HUB impactés en premier, puis par nombre d'impactés */
-  hubs.sort((a, b) => {
+  hubs.sort((a,b) => {
     if(a.hubImpacted !== b.hubImpacted) return a.hubImpacted ? -1 : 1;
     return b.impactedCount - a.impactedCount;
   });
-
   return hubs;
 }
-
 function renderHubsForAnalyzedSites(){
   if(!autoHubMode) return;
   const hubList = $("hubList");
   const details = $("hubDetails");
   if(!hubList) return;
-
   autoHubData = computeAutoHubData();
-
   if(!autoHubData || !autoHubData.length){
-    hubList.innerHTML = `<div class="hub-empty">
-      <i class="fa-solid fa-circle-info"></i>
-      <p>Aucun HUB détecté pour ces sites.<br>Vérifiez que les fichiers GeoJSON sont chargés.</p>
-    </div>`;
+    hubList.innerHTML = `<div class="hub-empty"><i class="fa-solid fa-circle-info"></i><p>Aucun HUB détecté pour ces sites.</p></div>`;
     return;
   }
-
   if(details) details.classList.add("hidden");
-
   hubList.innerHTML = autoHubData.map((hub, i) => {
     const hubBadgeClass = hub.hubImpacted === true ? "status-bad"
                         : hub.hubImpacted === false ? "status-good"
@@ -1504,10 +1623,8 @@ function renderHubsForAnalyzedSites(){
     const hubBadgeText = hub.hubImpacted === true ? "HUB impacté"
                        : hub.hubImpacted === false ? "HUB sain"
                        : "HUB non analysé";
-
     const linkInfo = getSiteLinkInfo(hub.site);
     const isActive = hubFilterState.active && hubFilterState.hubSite === hub.site;
-
     return `
       <div class="hub-item hub-item--auto ${isActive ? "is-active" : ""}" data-site="${escapeHtml(hub.site)}">
         <span class="hub-item__rank">#${i+1}</span>
@@ -1517,101 +1634,76 @@ function renderHubsForAnalyzedSites(){
         </div>
         <div class="hub-item__badges">
           <span class="status-badge ${hubBadgeClass}">${hubBadgeText}</span>
-          <span class="link-badge ${linkInfo.badgeClass}">
-            ${linkInfo.icon ? `<i class="fa-solid ${linkInfo.icon}"></i>` : ""}
-            ${linkInfo.label}
-          </span>
+          <span class="link-badge ${linkInfo.badgeClass}">${linkInfo.icon ? `<i class="fa-solid ${linkInfo.icon}"></i>` : ""}${linkInfo.label}</span>
         </div>
         <div class="hub-item__meta" style="margin-top:8px">
-          <span><i class="fa-solid fa-link"></i>${hub.totalLinked} site(s) lié(s)</span>
+          <span><i class="fa-solid fa-link"></i>${hub.totalLinked} lié(s)</span>
           <span style="color:var(--c-danger-700)"><i class="fa-solid fa-triangle-exclamation"></i>${hub.impactedCount} impacté(s)</span>
           <span style="color:var(--c-success-700)"><i class="fa-solid fa-check"></i>${hub.okCount} sain(s)</span>
         </div>
       </div>`;
   }).join("");
-
   hubList.querySelectorAll(".hub-item").forEach(item => {
     item.addEventListener("click", () => {
       const site = item.dataset.site;
       selectSite(site);
-      /* Affiche les détails détaillés du HUB avec statut des sites liés */
       const hub = autoHubData.find(h => h.site === normalizeSite(site));
       if(hub) renderAutoHubDetails(hub);
     });
   });
 }
-
 function renderAutoHubDetails(hub){
   const details = $("hubDetails");
   if(!details) return;
-
   const hubBadgeClass = hub.hubImpacted === true ? "status-bad"
                       : hub.hubImpacted === false ? "status-good"
                       : "link-badge unknown";
   const hubBadgeText = hub.hubImpacted === true ? "HUB impacté"
                      : hub.hubImpacted === false ? "HUB sain"
                      : "HUB non analysé";
-
   details.innerHTML = `
     <div class="hub-details__head">
       <i class="fa-solid fa-hubspot"></i>
       <div>
         <h4>${escapeHtml(hub.site)} ⭐</h4>
-        <p class="hub-details__subtitle">
-          ${hub.totalLinked} site(s) lié(s) • ${hub.impactedCount} impacté(s)
-        </p>
+        <p class="hub-details__subtitle">${hub.totalLinked} site(s) lié(s) • ${hub.impactedCount} impacté(s)</p>
         <span class="status-badge ${hubBadgeClass}" style="margin-top:6px;display:inline-flex">${hubBadgeText}</span>
       </div>
     </div>
     <div class="hub-dependents">
       ${hub.linkedSites.map(dep => {
-        const statClass = dep.status === "impacted" ? "dependent__loss"
-                        : dep.status === "ok" ? "dependent__loss is-ok"
-                        : "dependent__loss";
         const statColor = dep.status === "impacted" ? "color:#be123c"
                         : dep.status === "ok" ? "color:#047857"
                         : "color:#64748b";
         const statLabel = dep.status === "impacted" ? "Impacté"
-                        : dep.status === "ok" ? "Sain"
-                        : "n/d";
+                        : dep.status === "ok" ? "Sain" : "n/d";
         const lossTxt = dep.avg !== null ? `${formatNumber(dep.avg)}%` : "—";
         const link = getSiteLinkInfo(dep.site);
         return `
           <div class="dependent" data-site="${escapeHtml(dep.site)}">
             <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0">
               <span class="dependent__site">${escapeHtml(dep.site)}</span>
-              <span style="font-size:10px;color:var(--c-text-muted)">
-                ${link.label} • seuil ${dep.thr.toFixed(2)}%
-              </span>
+              <span style="font-size:10px;color:var(--c-text-muted)">${link.label} • seuil ${dep.thr.toFixed(2)}%</span>
             </div>
-            <span class="${statClass}" style="${statColor};font-weight:800;font-size:11.5px;display:inline-flex;align-items:center;gap:4px">
-              ${statLabel} ${lossTxt}
-            </span>
+            <span style="${statColor};font-weight:800;font-size:11.5px">${statLabel} ${lossTxt}</span>
           </div>`;
       }).join("")}
     </div>`;
   details.classList.remove("hidden");
 }
-
-/* Bouton toggle mode HUB auto */
 function bindAutoHubBtn(){
   const btn = $("autoHubBtn");
   if(!btn) return;
-  /* Initialise l'état depuis le localStorage */
   const saved = storageGet(LS_KEYS.AUTO_HUB, true);
   autoHubMode = saved !== false;
   btn.classList.toggle("is-active", autoHubMode);
-
   btn.addEventListener("click", () => {
     autoHubMode = !autoHubMode;
     storageSet(LS_KEYS.AUTO_HUB, autoHubMode);
     btn.classList.toggle("is-active", autoHubMode);
     if(lastResult){
-      if(autoHubMode){
-        renderHubsForAnalyzedSites();
-      } else {
-        renderHubPanel(lastSiteStats);
-      }
+      if(autoHubMode) renderHubsForAnalyzedSites();
+      else renderHubPanel(lastSiteStats);
     }
   });
 }
@@ -1637,10 +1729,7 @@ function selectSite(siteCode){
   document.querySelectorAll(".hub-item").forEach(el => {
     el.classList.toggle("is-active", normalizeSite(el.dataset.site) === site);
   });
-  /* En mode auto, on garde le panneau détaillé du HUB auto */
-  if(!autoHubMode) {
-    renderHubDetailsClassic(site, neighbors);
-  }
+  if(!autoHubMode) renderHubDetailsClassic(site, neighbors);
   if(lastResult && map){
     renderMapMarkers(lastSiteStats);
     renderNetworkLinksOnMap();
@@ -1708,15 +1797,11 @@ function clearHubFilter(){
   const details = $("hubDetails");
   if(details){ details.classList.add("hidden"); details.innerHTML = ""; }
   document.querySelectorAll(".hub-item").forEach(el => el.classList.remove("is-active"));
-    /* Désactive aussi la heatmap si active */
   if(heatmapActive){
     heatmapActive = false;
     const chk = $("toggleHeatmap");
     if(chk) chk.checked = false;
-    if(heatmapLayer){
-      map.removeLayer(heatmapLayer);
-      heatmapLayer = null;
-    }
+    if(heatmapLayer){ map.removeLayer(heatmapLayer); heatmapLayer = null; }
     hideHeatmapLegend();
   }
   if(map && lastResult){
@@ -1748,7 +1833,7 @@ safeOn("toggleHubs", "change", e => {
 });
 
 /* =========================================================
-   TENDANCE
+   TENDANCE PAR SITE
    ========================================================= */
 function computeSiteTrend(siteRows){
   const sorted = [...siteRows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
@@ -1766,6 +1851,21 @@ function computeSiteTrend(siteRows){
   else if(halfToHalf > 10) trend = "degrading";
   const lastRow = sorted[sorted.length-1];
   return { firstAvg, secondAvg, halfToHalf, trend, currentLoss: Number(lastRow?.packet_loss || 0) };
+}
+function computeTrendSlope(siteRows, lastN = 24){
+  const sorted = [...siteRows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
+  const recent = sorted.slice(-lastN);
+  if(recent.length < 3) return 0;
+  const n = recent.length;
+  const xs = recent.map((_, i) => i);
+  const ys = recent.map(r => Number(r.packet_loss) || 0);
+  const sumX = xs.reduce((s,x)=>s+x,0);
+  const sumY = ys.reduce((s,y)=>s+y,0);
+  const sumXY = xs.reduce((s,x,i)=>s + x*ys[i], 0);
+  const sumX2 = xs.reduce((s,x)=>s + x*x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if(denom === 0) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
 }
 
 /* =========================================================
@@ -1804,8 +1904,7 @@ function renderSiteGrid(siteStats, rows){
     card.dataset.above = Number(s.above_threshold||0);
     card.dataset.link = linkInfo.code;
     const trendLabel = trend.trend === "improving" ? "Amélioration"
-                    : trend.trend === "degrading" ? "Dégradation"
-                    : "Stable";
+                    : trend.trend === "degrading" ? "Dégradation" : "Stable";
     let comment;
     if(trend.trend === "improving"){
       comment = `<strong>Amélioration :</strong> perte passée de ${formatNumber(trend.firstAvg)}% à ${formatNumber(trend.secondAvg)}%. Site dégradé ${formatDuration(deg.totalHours)}.`;
@@ -1821,7 +1920,7 @@ function renderSiteGrid(siteStats, rows){
           <div class="site-subtitle">
             <span class="vendor-badge ${vendorClass}">${escapeHtml(s.vendor)}</span>
             <span class="link-badge ${linkInfo.badgeClass}">${linkInfo.icon ? `<i class="fa-solid ${linkInfo.icon}"></i>` : ""}${linkInfo.label}</span>
-            <span class="link-badge unknown" title="Seuil appliqué">Seuil ${thr.toFixed(2)}%</span>
+            <span class="link-badge unknown">Seuil ${thr.toFixed(2)}%</span>
           </div>
         </div>
         <span class="trend-badge ${trend.trend}">
@@ -1935,10 +2034,6 @@ function renderSiteChartRaw(id, rows, name){
   });
   addChartMarkers(id, rows, name);
 }
-
-/* =========================================================
-   MARQUEURS SUR CHART
-   ========================================================= */
 function addChartMarkers(chartId, rows, site){
   const thr = thresholdFor(site);
   const sorted = [...rows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
@@ -1947,29 +2042,20 @@ function addChartMarkers(chartId, rows, site){
   const firstDeg = sorted.find(r => (Number(r.packet_loss)||0) > thr);
   if(firstDeg){
     annotations.push({
-      x: makeDateTime(firstDeg),
-      y: Number(firstDeg.packet_loss),
-      text: "Début",
-      showarrow: true, arrowhead: 2, arrowcolor: "#f97316",
-      ax: 0, ay: -30,
-      font: { size: 9, color: "#f97316" },
-      bgcolor: "rgba(255,247,237,.95)", bordercolor: "#fed7aa", borderpad: 3
+      x: makeDateTime(firstDeg), y: Number(firstDeg.packet_loss),
+      text: "Début", showarrow:true, arrowhead:2, arrowcolor:"#f97316",
+      ax:0, ay:-30, font:{ size:9, color:"#f97316" },
+      bgcolor:"rgba(255,247,237,.95)", bordercolor:"#fed7aa", borderpad:3
     });
   }
   let maxRow = null, maxVal = -Infinity;
-  sorted.forEach(r => {
-    const v = Number(r.packet_loss) || 0;
-    if(v > maxVal){ maxVal = v; maxRow = r; }
-  });
+  sorted.forEach(r => { const v = Number(r.packet_loss)||0; if(v > maxVal){ maxVal = v; maxRow = r; } });
   if(maxRow && maxVal > thr){
     annotations.push({
-      x: makeDateTime(maxRow),
-      y: maxVal,
-      text: `Pic ${formatNumber(maxVal)}%`,
-      showarrow: true, arrowhead: 2, arrowcolor: "#be123c",
-      ax: 0, ay: -40,
-      font: { size: 9, color: "#be123c" },
-      bgcolor: "rgba(255,241,242,.95)", bordercolor: "#fecdd3", borderpad: 3
+      x: makeDateTime(maxRow), y: maxVal,
+      text: `Pic ${formatNumber(maxVal)}%`, showarrow:true, arrowhead:2, arrowcolor:"#be123c",
+      ax:0, ay:-40, font:{ size:9, color:"#be123c" },
+      bgcolor:"rgba(255,241,242,.95)", bordercolor:"#fecdd3", borderpad:3
     });
   }
   if(maxRow){
@@ -1977,25 +2063,45 @@ function addChartMarkers(chartId, rows, site){
     for(let i = maxIdx + 1; i < sorted.length; i++){
       if((Number(sorted[i].packet_loss)||0) <= thr){
         annotations.push({
-          x: makeDateTime(sorted[i]),
-          y: Number(sorted[i].packet_loss),
-          text: "Fin",
-          showarrow: true, arrowhead: 2, arrowcolor: "#10b981",
-          ax: 0, ay: -30,
-          font: { size: 9, color: "#047857" },
-          bgcolor: "rgba(236,253,245,.95)", bordercolor: "#a7f3d0", borderpad: 3
+          x: makeDateTime(sorted[i]), y: Number(sorted[i].packet_loss),
+          text: "Fin", showarrow:true, arrowhead:2, arrowcolor:"#10b981",
+          ax:0, ay:-30, font:{ size:9, color:"#047857" },
+          bgcolor:"rgba(236,253,245,.95)", bordercolor:"#a7f3d0", borderpad:3
         });
         break;
       }
     }
   }
-  if(annotations.length){
+  const userAnns = (currentAnnotations[site] || []).map(a => {
+    const idx = sorted.findIndex(r => Math.abs(new Date(makeDateTime(r)||0).getTime() - a.ts) < 60000);
+    if(idx < 0) return null;
+    const icons = { incident:"⚠️", maintenance:"🔧", info:"ℹ️", resolved:"✓" };
+    return {
+      x: makeDateTime(sorted[idx]), y: Number(sorted[idx].packet_loss),
+      text: `${icons[a.type] || "ℹ️"} ${a.text.substring(0, 30)}`,
+      showarrow:true, arrowhead:3, arrowcolor:"#8b5cf6",
+      ax:0, ay:-50, font:{ size:9, color:"#6d28d9" },
+      bgcolor:"rgba(245,243,255,.95)", bordercolor:"#ddd6fe", borderpad:3
+    };
+  }).filter(Boolean);
+  const allAnns = annotations.concat(userAnns);
+  if(allAnns.length){
     try{
       const el = document.getElementById(chartId);
       if(!el || !el._fullLayout) return;
       const existing = (el._fullLayout.annotations || []).filter(a => a.text && a.text.startsWith("Seuil"));
-      Plotly.relayout(chartId, { annotations: annotations.concat(existing) });
+      Plotly.relayout(chartId, { annotations: allAnns.concat(existing) });
     }catch(_){}
+  }
+  const el = document.getElementById(chartId);
+  if(el && !el._clickBound){
+    el._clickBound = true;
+    el.on("plotly_click", (data) => {
+      if(!data || !data.points || !data.points.length) return;
+      const pt = data.points[0];
+      const ts = new Date(pt.x).getTime();
+      openAnnotationModal(site, ts);
+    });
   }
 }
 
@@ -2077,7 +2183,7 @@ function bindViewToggle(){
 }
 
 /* =========================================================
-   ONGLETS — Fiabilité / Corrélations / Heatmap / Prédictions
+   ONGLETS AVANCÉS
    ========================================================= */
 function bindTabs(){
   document.querySelectorAll("#detailTabs .tab").forEach(tab => {
@@ -2088,10 +2194,7 @@ function bindTabs(){
       document.querySelectorAll(".tab-content").forEach(c => {
         c.classList.toggle("hidden", c.dataset.tabContent !== t);
       });
-      if(t === "reliability") renderReliabilityTable();
-      else if(t === "correlation") renderCorrelation();
-      else if(t === "heatmap") renderHeatmap();
-      else if(t === "predictions") renderPredictions();
+      renderAdvancedTab(t);
     });
   });
   safeOn("correlationTop", "change", renderCorrelation);
@@ -2103,8 +2206,18 @@ function bindTabs(){
   safeOn("heatmapScope", "change", renderHeatmap);
   safeOn("heatmapSite", "change", renderHeatmap);
 }
+function renderAdvancedTab(tab){
+  if(tab === "reliability") renderReliabilityTable();
+  else if(tab === "correlation") renderCorrelation();
+  else if(tab === "heatmap") renderHeatmap();
+  else if(tab === "predictions") renderPredictions();
+  else if(tab === "overlay"){ renderOverlayChips(); renderOverlayChart(); }
+  else if(tab === "activeAlerts") renderActiveAlerts();
+}
 
-/* ----- FIABILITÉ ----- */
+/* =========================================================
+   FIABILITÉ
+   ========================================================= */
 function computeReliabilityKpis(site, siteRows, threshold){
   const sorted = [...siteRows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
   const incidents = [];
@@ -2114,15 +2227,14 @@ function computeReliabilityKpis(site, siteRows, threshold){
     const value = Number(row.packet_loss) || 0;
     const ts = new Date(makeDateTime(row) || 0).getTime();
     if(value > threshold){
-      if(!currentIncident){
-        currentIncident = { start: ts, end: ts, count: 1, peak: value };
-      } else if(ts - currentIncident.end <= ONE_HOUR * 1.5){
+      if(!currentIncident) currentIncident = { start:ts, end:ts, count:1, peak:value };
+      else if(ts - currentIncident.end <= ONE_HOUR * 1.5){
         currentIncident.end = ts;
         currentIncident.count++;
         currentIncident.peak = Math.max(currentIncident.peak, value);
       } else {
         incidents.push(currentIncident);
-        currentIncident = { start: ts, end: ts, count: 1, peak: value };
+        currentIncident = { start:ts, end:ts, count:1, peak:value };
       }
     } else if(currentIncident){
       incidents.push(currentIncident);
@@ -2131,15 +2243,15 @@ function computeReliabilityKpis(site, siteRows, threshold){
   });
   if(currentIncident) incidents.push(currentIncident);
   const mttrHours = incidents.length
-    ? incidents.reduce((s, i) => s + (i.end - i.start) / ONE_HOUR + 1, 0) / incidents.length
+    ? incidents.reduce((s,i) => s + (i.end - i.start)/ONE_HOUR + 1, 0) / incidents.length
     : 0;
   let mtbfHours = 0;
   if(incidents.length >= 2){
     const totalSpan = incidents[incidents.length-1].start - incidents[0].start;
     mtbfHours = (totalSpan / ONE_HOUR) / (incidents.length - 1);
   } else if(sorted.length){
-    const span = new Date(makeDateTime(sorted[sorted.length-1]) || 0).getTime()
-               - new Date(makeDateTime(sorted[0]) || 0).getTime();
+    const span = new Date(makeDateTime(sorted[sorted.length-1])||0).getTime()
+               - new Date(makeDateTime(sorted[0])||0).getTime();
     mtbfHours = span / ONE_HOUR;
   }
   const totalRows = sorted.length;
@@ -2149,11 +2261,11 @@ function computeReliabilityKpis(site, siteRows, threshold){
   const avg = values.length ? values.reduce((s,v)=>s+v,0) / values.length : 0;
   const max = values.length ? Math.max(...values) : 0;
   const thr = threshold || defaultThreshold;
-  const avgPenalty = Math.min(35, (avg / thr) * 25);
-  const maxPenalty = Math.min(25, (max / (thr * 10)) * 25);
-  const freqPenalty = Math.min(20, incidents.length * 2);
-  const durPenalty = Math.min(20, (mttrHours / 24) * 20);
-  const score = Math.max(0, 100 - avgPenalty - maxPenalty - freqPenalty - durPenalty);
+  const avgP = Math.min(35, (avg / thr) * 25);
+  const maxP = Math.min(25, (max / (thr * 10)) * 25);
+  const freqP = Math.min(20, incidents.length * 2);
+  const durP = Math.min(20, (mttrHours / 24) * 20);
+  const score = Math.max(0, 100 - avgP - maxP - freqP - durP);
   return {
     site,
     sla: Math.round(sla * 100) / 100,
@@ -2205,7 +2317,9 @@ function renderReliabilityTable(){
   }).join("");
 }
 
-/* ----- CORRÉLATION ----- */
+/* =========================================================
+   CORRÉLATION
+   ========================================================= */
 function computeCorrelationMatrix(){
   const grouped = {};
   (lastFilteredRows || []).forEach(r => {
@@ -2273,28 +2387,22 @@ function renderCorrelation(){
           <span class="correlation-pair__pct">${p.pct}%</span>
         </div>
         <div class="correlation-pair__meta">Dégradations simultanées détectées</div>
-      </div>
-    `).join("");
+      </div>`).join("");
     container.querySelectorAll(".correlation-pair").forEach(el => {
       el.addEventListener("click", () => {
         overlaySites = [el.dataset.s1, el.dataset.s2];
         storageSet(LS_KEYS.OVERLAY, overlaySites);
-        toggleOverlayPanel(true);
-        renderOverlayChips();
-        renderOverlayChart();
+        document.querySelectorAll("#detailTabs .tab").forEach(t => t.classList.toggle("is-active", t.dataset.tab === "overlay"));
+        document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("hidden", c.dataset.tabContent !== "overlay"));
+        renderAdvancedTab("overlay");
       });
     });
   }
   const sites = result.sites;
-  if(!sites.length){
-    matrixEl.innerHTML = "";
-    return;
-  }
+  if(!sites.length){ matrixEl.innerHTML = ""; return; }
   const html = `
     <table class="matrix-table">
-      <thead>
-        <tr><th></th>${sites.map(s => `<th>${escapeHtml(s)}</th>`).join("")}</tr>
-      </thead>
+      <thead><tr><th></th>${sites.map(s => `<th>${escapeHtml(s)}</th>`).join("")}</tr></thead>
       <tbody>
         ${sites.map(s1 => `
           <tr>
@@ -2306,14 +2414,15 @@ function renderCorrelation(){
               const bg = `hsl(${hue}, 75%, 50%)`;
               return `<td style="background:${bg}" title="${escapeHtml(s1)} ↔ ${escapeHtml(s2)} : ${pct}%">${pct}%</td>`;
             }).join("")}
-          </tr>
-        `).join("")}
+          </tr>`).join("")}
       </tbody>
     </table>`;
   matrixEl.innerHTML = html;
 }
 
-/* ----- HEATMAP ----- */
+/* =========================================================
+   HEATMAP HORAIRE
+   ========================================================= */
 function renderHeatmap(){
   const container = $("heatmapContainer");
   if(!container) return;
@@ -2358,8 +2467,7 @@ function renderHeatmap(){
   const hours = Array.from({length:24}, (_,i) => String(i).padStart(2,"0") + "h");
   let html = `<div class="heatmap-grid">
     <div class="heatmap-cell" style="background:transparent"></div>
-    ${hours.map(h => `<div class="heatmap-header">${h}</div>`).join("")}
-  `;
+    ${hours.map(h => `<div class="heatmap-header">${h}</div>`).join("")}`;
   for(let d = 0; d < 7; d++){
     html += `<div class="heatmap-day-label">${days[d]}</div>`;
     for(let h = 0; h < 24; h++){
@@ -2379,7 +2487,9 @@ function renderHeatmap(){
   container.innerHTML = html;
 }
 
-/* ----- PRÉDICTIONS ----- */
+/* =========================================================
+   PRÉDICTIONS
+   ========================================================= */
 function computePredictions(){
   const grouped = {};
   (lastFilteredRows || []).forEach(r => {
@@ -2432,11 +2542,9 @@ function renderPredictions(){
                     : p.slope < -0.001 ? "prediction-trend--down"
                     : "prediction-trend--stable";
     const trendIcon = p.slope > 0.001 ? "fa-arrow-trend-up"
-                    : p.slope < -0.001 ? "fa-arrow-trend-down"
-                    : "fa-minus";
+                    : p.slope < -0.001 ? "fa-arrow-trend-down" : "fa-minus";
     const trendLabel = p.slope > 0.001 ? "Hausse"
-                    : p.slope < -0.001 ? "Baisse"
-                    : "Stable";
+                    : p.slope < -0.001 ? "Baisse" : "Stable";
     return `
       <tr>
         <td><strong>${escapeHtml(p.site)}</strong></td>
@@ -2449,33 +2557,9 @@ function renderPredictions(){
   }).join("");
 }
 
-/* ----- DÉTECTION DÉGRADATION RAPIDE ----- */
-function computeTrendSlope(siteRows, lastN = 24){
-  const sorted = [...siteRows].sort((a,b) => (makeDateTime(a)||"").localeCompare(makeDateTime(b)||""));
-  const recent = sorted.slice(-lastN);
-  if(recent.length < 3) return 0;
-  const n = recent.length;
-  const xs = recent.map((_, i) => i);
-  const ys = recent.map(r => Number(r.packet_loss) || 0);
-  const sumX = xs.reduce((s,x)=>s+x,0);
-  const sumY = ys.reduce((s,y)=>s+y,0);
-  const sumXY = xs.reduce((s,x,i)=>s + x*ys[i], 0);
-  const sumX2 = xs.reduce((s,x)=>s + x*x, 0);
-  const denom = n * sumX2 - sumX * sumX;
-  if(denom === 0) return 0;
-  return (n * sumXY - sumX * sumY) / denom;
-}
-
 /* =========================================================
    OVERLAY
    ========================================================= */
-function toggleOverlayPanel(force){
-  const panel = $("overlayPanel");
-  if(!panel) return;
-  const show = force !== undefined ? force : panel.classList.contains("hidden");
-  panel.classList.toggle("hidden", !show);
-  if(show){ renderOverlayChips(); renderOverlayChart(); }
-}
 function renderOverlayChips(){
   const chips = $("overlayChips");
   if(!chips) return;
@@ -2527,8 +2611,7 @@ function renderOverlayChart(){
     traces.push({
       x: allX, y: allX.map(() => defaultThreshold),
       type:"scatter", mode:"lines", name:"Seuil par défaut",
-      line:{ dash:"dash", color:"#ef4444", width:1.2 },
-      hoverinfo:"skip"
+      line:{ dash:"dash", color:"#ef4444", width:1.2 }, hoverinfo:"skip"
     });
   }
   Plotly.newPlot(container, traces, {
@@ -2543,12 +2626,6 @@ function renderOverlayChart(){
   }, { responsive:true, displaylogo:false, modeBarButtonsToRemove:['lasso2d','select2d','hoverClosestCartesian','hoverCompareCartesian','toggleSpikelines','zoom2d','pan2d'] });
 }
 function bindOverlay(){
-  safeOn("overlayBtn", "click", () => {
-    toggleOverlayPanel(true);
-    renderOverlayChips();
-    renderOverlayChart();
-  });
-  safeOn("overlayClose", "click", () => toggleOverlayPanel(false));
   safeOn("overlayClearBtn", "click", () => {
     overlaySites = [];
     storageSet(LS_KEYS.OVERLAY, overlaySites);
@@ -2622,9 +2699,9 @@ async function runComparison(){
   try{
     const [resCurrent, resRef] = await Promise.all([
       fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ sites, vendor, start_date: curS, end_date: curE }) }).then(r => r.json()),
+        body: JSON.stringify({ sites, vendor, start_date: curS, end_date: curE, country: activeCountry }) }).then(r => r.json()),
       fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ sites, vendor, start_date: refS, end_date: refE }) }).then(r => r.json())
+        body: JSON.stringify({ sites, vendor, start_date: refS, end_date: refE, country: activeCountry }) }).then(r => r.json())
     ]);
     if(!resCurrent.success || !resRef.success) throw new Error("Erreur de comparaison.");
     compareResult = { current: resCurrent, reference: resRef, curS, curE, refS, refE };
@@ -2752,7 +2829,7 @@ function bindCompare(){
 }
 
 /* =========================================================
-   ALERTES EMAIL (config)
+   ALERTES EMAIL
    ========================================================= */
 async function loadAlertRules(){
   try{
@@ -2776,7 +2853,7 @@ async function saveAlertRules(){
   try{
     const r = await fetch(ALERTS_SAVE_URL, {
       method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ email, min_hours: minHours, frequency, sites })
+      body: JSON.stringify({ email, min_hours: minHours, frequency, sites, country: activeCountry })
     });
     const data = await r.json();
     if(!data.success) throw new Error(data.message || "Erreur serveur.");
@@ -2840,14 +2917,14 @@ function renderActiveAlerts(){
   const alerts = computeActiveAlerts();
   if(badge) badge.textContent = alerts.length;
   if(!alerts.length){
-    list.innerHTML = `<div style="text-align:center;padding:30px;color:var(--c-text-muted)">
-      <i class="fa-solid fa-check-circle" style="font-size:28px;color:#10b981;display:block;margin-bottom:10px"></i>
+    list.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--c-text-muted)">
+      <i class="fa-solid fa-check-circle" style="font-size:32px;color:#10b981;display:block;margin-bottom:12px"></i>
       Aucune alerte active. Tous les sites sont dans les seuils.
     </div>`;
     return;
   }
   list.innerHTML = alerts.map(a => `
-    <div class="alert-item">
+    <div class="alert-item" data-site="${escapeHtml(a.site)}" role="button" tabindex="0">
       <div class="alert-item__icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
       <div class="alert-item__body">
         <div class="alert-item__site">${escapeHtml(a.site)}</div>
@@ -2859,28 +2936,44 @@ function renderActiveAlerts(){
         </div>
       </div>
       <div class="alert-item__actions">
-        <button class="alert-item__btn" data-locate="${escapeHtml(a.site)}">Localiser</button>
+        <button class="alert-item__btn alert-item__btn--primary" data-locate="${escapeHtml(a.site)}">
+          <i class="fa-solid fa-location-crosshairs"></i> Voir sur la carte
+        </button>
       </div>
     </div>`).join("");
-  list.querySelectorAll("[data-locate]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const loc = locationIndex[normalizeSite(btn.dataset.locate)];
-      if(loc && map) map.setView([Number(loc.lat), Number(loc.lng)], 11, { animate:true });
+  list.querySelectorAll(".alert-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      const site = item.dataset.site;
+      if(!site) return;
+      e.stopPropagation();
+      locateSiteOnMap(site);
     });
   });
 }
-function bindActiveAlerts(){
-  safeOn("activeAlertsBtn", "click", () => {
-    const panel = $("activeAlertsPanel");
-    if(!panel) return;
-    const show = panel.classList.contains("hidden");
-    panel.classList.toggle("hidden", !show);
-    if(show) renderActiveAlerts();
-  });
-  safeOn("activeAlertsClose", "click", () => {
-    const panel = $("activeAlertsPanel");
-    if(panel) panel.classList.add("hidden");
-  });
+function locateSiteOnMap(site){
+  switchView("main");
+  setTimeout(() => {
+    const loc = locationIndex[normalizeSite(site)];
+    if(loc && map){
+      map.setView([Number(loc.lat), Number(loc.lng)], 11, { animate:true });
+      document.querySelectorAll(".site-marker-id").forEach(idEl => {
+        if(normalizeSite(idEl.textContent) === normalizeSite(site)){
+          const dot = idEl.parentElement?.querySelector(".site-marker-dot");
+          if(dot){
+            dot.style.background = "#be123c";
+            dot.style.boxShadow = "0 0 0 6px rgba(244,63,94,.4)";
+            setTimeout(() => {
+              dot.style.background = "";
+              dot.style.boxShadow = "";
+            }, 3000);
+          }
+        }
+      });
+    }
+    const mapPanel = $("mapPanel");
+    if(mapPanel) mapPanel.scrollIntoView({ behavior:"smooth", block:"start" });
+    showMessage(`Localisation : ${site}`);
+  }, 200);
 }
 
 /* =========================================================
@@ -2899,10 +2992,7 @@ function updateDataFreshness(){
     const ts = new Date(makeDateTime(r) || 0).getTime();
     if(ts > maxTs) maxTs = ts;
   });
-  if(!maxTs){
-    el.textContent = "En attente d'analyse";
-    return;
-  }
+  if(!maxTs){ el.textContent = "En attente d'analyse"; return; }
   const diffMin = Math.round((Date.now() - maxTs) / 60000);
   if(diffMin < 60){
     el.textContent = `Dernière mesure il y a ${diffMin} min`;
@@ -2923,21 +3013,19 @@ function updateDataFreshness(){
    ========================================================= */
 function buildWallboardSlides(){
   wallboardState.slides = [
-    { name:"Vue globale", selector:"#globalChart", panel:".panel:has(#globalChart)" },
-    { name:"Worst Sites", selector:"#worstTableBody", panel:".panel--worst" },
-    { name:"Résumé", selector:".panel--resume", panel:".panel--resume" },
-    { name:"Carte réseau", selector:"#mapPanel", panel:"#mapPanel" },
-    { name:"Analyse détaillée", selector:"#siteGrid", panel:".panel:has(#siteGrid)" }
+    { name:"Vue globale",       panel:".panel:has(#globalChart)" },
+    { name:"Worst Sites",       panel:".panel--worst" },
+    { name:"Résumé",            panel:".panel--resume" },
+    { name:"Carte réseau",      panel:"#mapPanel" },
+    { name:"Analyse détaillée", panel:".panel:has(#siteGrid)" }
   ];
 }
 function showWallboardSlide(index){
-  document.querySelectorAll(".panel").forEach(p => { p.style.display = ""; });
-  const slide = wallboardState.slides[index];
-  if(!slide) return;
-  /* Cache tous les panels sauf celui du slide */
-  document.querySelectorAll("#dashboard > .panel, #dashboard > .two-col, #dashboard > .quick-bar, #dashboard > .freshness-bar").forEach(el => {
+  document.querySelectorAll("#mainView > .panel, #mainView > .two-col, #mainView > .quick-bar, #mainView > .freshness-bar").forEach(el => {
     el.style.display = "none";
   });
+  const slide = wallboardState.slides[index];
+  if(!slide) return;
   const target = document.querySelector(slide.panel);
   if(target) target.style.display = "";
   const nameEl = $("wallboardViewName");
@@ -2969,13 +3057,14 @@ function stopWallboard(){
   document.body.classList.remove("wallboard-mode");
   const bar = $("wallboardBar");
   if(bar) bar.classList.add("hidden");
-  document.querySelectorAll("#dashboard > .panel, #dashboard > .two-col, #dashboard > .quick-bar, #dashboard > .freshness-bar").forEach(el => {
+  document.querySelectorAll("#mainView > .panel, #mainView > .two-col, #mainView > .quick-bar, #mainView > .freshness-bar").forEach(el => {
     el.style.display = "";
   });
   setTimeout(() => { if(map) map.invalidateSize(); }, 200);
 }
 function bindWallboard(){
   safeOn("wallboardBtn", "click", () => openModal("wallboardModal"));
+  safeOn("wallboardBtnAdvanced", "click", () => openModal("wallboardModal"));
   safeOn("wallboardStartBtn", "click", () => {
     const dur = Number($("wallboardDuration")?.value || 30);
     const ref = Number($("wallboardRefresh")?.value || 10);
@@ -3009,7 +3098,6 @@ function bindWallboard(){
       if(btn) btn.innerHTML = '<i class="fa-solid fa-pause"></i>';
     }
   });
-  /* Recharge les paramètres sauvegardés */
   const d = Number(storageGet(LS_KEYS.WB_DURATION, 30));
   const r = Number(storageGet(LS_KEYS.WB_REFRESH, 10));
   wallboardState.duration = d;
@@ -3025,38 +3113,39 @@ const HELP_CONTENT = {
   guide: `
     <h3>Démarrage rapide</h3>
     <div class="help-step"><div class="help-step__num">1</div><div><strong>Importez vos sites</strong><br>Fichier TXT, Excel, ou collez directement les codes séparés par des espaces.</div></div>
-    <div class="help-step"><div class="help-step__num">2</div><div><strong>Définissez la période</strong><br>7 jours par défaut, ou personnalisée. Filtrez aussi par plage horaire.</div></div>
+    <div class="help-step"><div class="help-step__num">2</div><div><strong>Définissez la période</strong><br>7 jours par défaut, ou personnalisée.</div></div>
     <div class="help-step"><div class="help-step__num">3</div><div><strong>Choisissez le vendor</strong><br>Tous, Ericsson ou Huawei.</div></div>
-    <div class="help-step"><div class="help-step__num">4</div><div><strong>Lancez l'analyse</strong><br>Le dashboard s'affiche avec les KPI, le top des sites dégradés et l'analyse détaillée.</div></div>
-    <div class="help-step"><div class="help-step__num">5</div><div><strong>Explorez les onglets</strong><br>Sites, Fiabilité, Corrélations, Heatmap horaire, Prédictions.</div></div>
+    <div class="help-step"><div class="help-step__num">4</div><div><strong>Lancez l'analyse</strong><br>Le dashboard s'affiche avec les KPI et l'analyse détaillée.</div></div>
+    <div class="help-step"><div class="help-step__num">5</div><div><strong>Explorez les modules avancés</strong><br>Bouton <em>Modules avancés</em> pour la Fiabilité, Corrélations, etc.</div></div>
     <h3>Astuces</h3>
     <ul>
-      <li>Le mode <strong>HUB auto</strong> (activé par défaut) n'affiche que les HUBs liés aux sites analysés, avec le statut de chaque site lié.</li>
-      <li>Cliquez sur un graphique de site pour y ajouter une annotation.</li>
+      <li>Le mode <strong>HUB auto</strong> affiche uniquement les HUBs liés aux sites analysés.</li>
+      <li>Cliquez sur un graphique pour ajouter une annotation.</li>
       <li>Zoomez sur le graphique global : tous les graphiques se synchronisent.</li>
       <li>Définissez des seuils par site pour éviter les faux positifs.</li>
+      <li>Activez la <strong>Heatmap packet loss</strong> pour visualiser les zones à problème.</li>
     </ul>`,
   glossary: `
     <h3>Termes techniques</h3>
-    <div class="glossary-term"><div class="glossary-term__name">Packet Loss</div><div class="glossary-term__desc">Pourcentage de paquets perdus. Indicateur clé de qualité réseau.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">Seuil</div><div class="glossary-term__desc">Valeur au-delà de laquelle le site est considéré comme dégradé. Par défaut 0,1 %.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">HUB</div><div class="glossary-term__desc">Site central du réseau, connecté à de nombreux autres. Sa panne impacte beaucoup de monde.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">RNC / BSC</div><div class="glossary-term__desc">Contrôleur de réseau radio (3G/2G).</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Packet Loss</div><div class="glossary-term__desc">Pourcentage de paquets perdus.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Seuil</div><div class="glossary-term__desc">Valeur au-delà de laquelle le site est considéré comme dégradé.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">HUB</div><div class="glossary-term__desc">Site central du réseau, connecté à de nombreux autres.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">RNC / BSC</div><div class="glossary-term__desc">Contrôleur de réseau radio.</div></div>
     <div class="glossary-term"><div class="glossary-term__name">FO (Fibre Optique)</div><div class="glossary-term__desc">Lien de transport principal en fibre.</div></div>
     <div class="glossary-term"><div class="glossary-term__name">FH (Faisceau Hertzien)</div><div class="glossary-term__desc">Lien radio point-à-point.</div></div>
     <div class="glossary-term"><div class="glossary-term__name">WDM</div><div class="glossary-term__desc">Wavelength Division Multiplexing.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">SLA</div><div class="glossary-term__desc">Service Level Agreement. Engagement de qualité de service.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">MTBF</div><div class="glossary-term__desc">Mean Time Between Failures. Temps moyen entre pannes.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">MTTR</div><div class="glossary-term__desc">Mean Time To Repair. Durée moyenne de résolution.</div></div>`,
+    <div class="glossary-term"><div class="glossary-term__name">SLA</div><div class="glossary-term__desc">Service Level Agreement.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">MTBF</div><div class="glossary-term__desc">Mean Time Between Failures.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">MTTR</div><div class="glossary-term__desc">Mean Time To Repair.</div></div>`,
   kpis: `
     <h3>Signification des KPIs</h3>
-    <div class="glossary-term"><div class="glossary-term__name">Sites demandés</div><div class="glossary-term__desc">Nombre total de sites que vous avez saisis.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">Avec données</div><div class="glossary-term__desc">Sites pour lesquels des mesures ont été trouvées.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">Sans données</div><div class="glossary-term__desc">Sites demandés sans mesure. À vérifier.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Sites demandés</div><div class="glossary-term__desc">Nombre total de sites saisis.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Avec données</div><div class="glossary-term__desc">Sites avec des mesures trouvées.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Sans données</div><div class="glossary-term__desc">Sites demandés sans mesure.</div></div>
     <div class="glossary-term"><div class="glossary-term__name">Taux de couverture</div><div class="glossary-term__desc">(Sites avec données / Sites demandés) × 100.</div></div>
     <div class="glossary-term"><div class="glossary-term__name">Impactés</div><div class="glossary-term__desc">Sites dont la moyenne dépasse leur seuil.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">Dégradés / Stables / Améliorés</div><div class="glossary-term__desc">Tendance comparant 1ère et 2ème moitié de période.</div></div>
-    <div class="glossary-term"><div class="glossary-term__name">Score qualité</div><div class="glossary-term__desc">Note sur 100 combinant moyenne, pic, fréquence et durée.</div></div>`
+    <div class="glossary-term"><div class="glossary-term__name">Dégradés / Stables / Améliorés</div><div class="glossary-term__desc">Tendance comparant 1ère et 2ème moitié.</div></div>
+    <div class="glossary-term"><div class="glossary-term__name">Score qualité</div><div class="glossary-term__desc">Note sur 100 combinant moyenne, pic, fréquence, durée.</div></div>`
 };
 function showHelpContent(tab){
   const el = $("helpContent");
@@ -3065,6 +3154,11 @@ function showHelpContent(tab){
 }
 function bindHelp(){
   safeOn("helpBtn", "click", () => {
+    showHelpContent("guide");
+    document.querySelectorAll(".help-tab").forEach(t => t.classList.toggle("is-active", t.dataset.help === "guide"));
+    openModal("helpModal");
+  });
+  safeOn("helpBtnAdvanced", "click", () => {
     showHelpContent("guide");
     document.querySelectorAll(".help-tab").forEach(t => t.classList.toggle("is-active", t.dataset.help === "guide"));
     openModal("helpModal");
@@ -3091,80 +3185,10 @@ function bindSynchronizedZoom(){
     document.querySelectorAll(".site-chart").forEach(el => {
       if(!el._fullLayout) return;
       try{
-        if(ev["xaxis.autorange"]){
-          Plotly.relayout(el, { "xaxis.autorange": true });
-        } else {
-          Plotly.relayout(el, { "xaxis.range": [x0, x1] });
-        }
+        if(ev["xaxis.autorange"]) Plotly.relayout(el, { "xaxis.autorange": true });
+        else Plotly.relayout(el, { "xaxis.range": [x0, x1] });
       }catch(_){}
     });
-  });
-}
-
-/* =========================================================
-   RECT FILTER + SIMULATION (carte)
-   ========================================================= */
-function bindRectangleFilter(){
-  safeOn("rectFilterBtn", "click", () => {
-    if(!map) return;
-    const btn = $("rectFilterBtn");
-    if(rectFilterActive){
-      if(rectFilter){ rectFilter.remove(); rectFilter = null; }
-      rectFilterActive = false;
-      btn.classList.remove("is-active");
-      renderMap(lastSiteStats);
-      return;
-    }
-    rectFilterActive = true;
-    btn.classList.add("is-active");
-    const startPt = { lat:null, lng:null };
-    const handler = (e) => {
-      if(startPt.lat === null){
-        startPt.lat = e.latlng.lat;
-        startPt.lng = e.latlng.lng;
-        return;
-      }
-      const b = L.latLngBounds(
-        [startPt.lat, startPt.lng],
-        [e.latlng.lat, e.latlng.lng]
-      );
-      if(rectFilter) rectFilter.remove();
-      rectFilter = L.rectangle(b, { color:"#4f46e5", weight:2, fillOpacity:.1 }).addTo(map);
-      const filtered = (lastSiteStats || []).filter(s => {
-        const loc = locationIndex[normalizeSite(s.Site)];
-        if(!loc) return false;
-        return b.contains([Number(loc.lat), Number(loc.lng)]);
-      });
-      const infoEl = $("mapInfo");
-      if(infoEl) infoEl.textContent = `${filtered.length} site(s) dans la zone sélectionnée`;
-      renderMapMarkers(filtered);
-      map.off("click", handler);
-      startPt.lat = null;
-      startPt.lng = null;
-    };
-    map.on("click", handler);
-  });
-}
-function bindOutageSimulation(){
-  safeOn("simulateOutageBtn", "click", () => {
-    if(!map || !networkGraph) return;
-    const site = prompt("Entrez le code d'un site à simuler en panne :");
-    if(!site) return;
-    const code = normalizeSite(site);
-    if(!networkGraph.adjacency.has(code)){
-      return showMessage("Ce site n'est pas dans le graphe réseau.");
-    }
-    const dependents = [...networkGraph.adjacency.get(code)].map(normalizeSite);
-    document.querySelectorAll(".site-marker-dot").forEach(dot => {
-      const parent = dot.closest(".site-marker");
-      const label = parent?.querySelector(".site-marker-id")?.textContent?.trim();
-      if(label && dependents.includes(normalizeSite(label))){
-        dot.style.background = "#be123c";
-        dot.style.boxShadow = "0 0 0 4px rgba(244,63,94,.5)";
-      }
-    });
-    showMessage(`Simulation : panne de ${code} → ${dependents.length} site(s) impacté(s)`);
-    setTimeout(() => renderMapMarkers(lastSiteStats), 4000);
   });
 }
 
@@ -3182,19 +3206,48 @@ function tryExample(){
 }
 
 /* =========================================================
+   SYSTÈME DE VUES
+   ========================================================= */
+function switchView(view){
+  const mainView = $("mainView");
+  const advView  = $("advancedView");
+  if(!mainView || !advView) return;
+  if(view === "advanced"){
+    mainView.classList.add("hidden");
+    advView.classList.remove("hidden");
+    const activeTabEl = document.querySelector("#detailTabs .tab.is-active");
+    const tab = activeTabEl?.dataset.tab || "reliability";
+    renderAdvancedTab(tab);
+    history.replaceState(null, "", "#advanced");
+    window.scrollTo({ top:0, behavior:"smooth" });
+  } else {
+    advView.classList.add("hidden");
+    mainView.classList.remove("hidden");
+    history.replaceState(null, "", window.location.pathname);
+    window.scrollTo({ top:0, behavior:"smooth" });
+    setTimeout(() => { if(map) map.invalidateSize(); }, 100);
+  }
+}
+function bindViewSwitcher(){
+  safeOn("advancedViewBtn", "click", () => switchView("advanced"));
+  safeOn("backToMainBtn", "click", () => switchView("main"));
+  if(window.location.hash === "#advanced"){
+    setTimeout(() => switchView("advanced"), 100);
+  }
+}
+
+/* =========================================================
    RENDER AU CHANGEMENT D'ONGLET
    ========================================================= */
 function onDashboardRendered(){
   updateDataFreshness();
-  if(activeTab === "reliability") renderReliabilityTable();
-  else if(activeTab === "correlation") renderCorrelation();
-  else if(activeTab === "heatmap") renderHeatmap();
-  else if(activeTab === "predictions") renderPredictions();
   const alerts = computeActiveAlerts();
   const badge = $("activeAlertsBadge");
   if(badge) badge.textContent = alerts.length;
-  const panel = $("activeAlertsPanel");
-  if(panel && !panel.classList.contains("hidden")) renderActiveAlerts();
+  const advView = $("advancedView");
+  if(advView && !advView.classList.contains("hidden")){
+    renderAdvancedTab(activeTab);
+  }
   bindSynchronizedZoom();
 }
 
@@ -3229,12 +3282,6 @@ safeOn("resetBtn", "click", () => {
   const ss = $("siteSearch"); if(ss) ss.value = "";
 
   chartViewMode = "day";
-    /* Désactive la heatmap */
-  heatmapActive = false;
-  const hmChk = $("toggleHeatmap");
-  if(hmChk) hmChk.checked = false;
-  if(heatmapLayer){ map.removeLayer(heatmapLayer); heatmapLayer = null; }
-  hideHeatmapLegend();
   const toggle = $("viewToggle");
   if(toggle) toggle.querySelectorAll(".view-toggle__btn").forEach(b => b.classList.toggle("is-active", b.dataset.view === "day"));
 
@@ -3244,6 +3291,7 @@ safeOn("resetBtn", "click", () => {
   const ml = $("mapLinkFilter"); if(ml) ml.value = "ALL";
   ["toggleSites","toggleFO","toggleFH","toggleTR","toggleTOPO"].forEach(id => { const el = $(id); if(el) el.checked = true; });
   const th = $("toggleHubs"); if(th) th.checked = false;
+  const thm = $("toggleHeatmap"); if(thm) thm.checked = false;
 
   mapFilterState.vendor = "ALL";
   mapFilterState.linkType = "ALL";
@@ -3253,7 +3301,12 @@ safeOn("resetBtn", "click", () => {
   mapFilterState.showTR = true;
   mapFilterState.showTOPO = true;
 
-  const dash = $("dashboard"); if(dash) dash.classList.add("hidden");
+  heatmapActive = false;
+  if(heatmapLayer){ map.removeLayer(heatmapLayer); heatmapLayer = null; }
+  hideHeatmapLegend();
+
+  const mv1 = $("mainView"); if(mv1) mv1.classList.add("hidden");
+  const av = $("advancedView"); if(av) av.classList.add("hidden");
   const empty = $("emptyState"); if(empty) empty.classList.remove("hidden");
   const ri = $("requestInfo"); if(ri) ri.classList.add("hidden");
   clearMessage();
@@ -3277,7 +3330,6 @@ safeOn("resetBtn", "click", () => {
   const covBar = $("kCoverageBar"); if(covBar) covBar.style.width = "0%";
   lastResult = null; lastFilteredRows = []; lastSiteStats = [];
   siteTrends = {};
-  toggleOverlayPanel(false);
   const crp = $("compareResultsPanel"); if(crp) crp.classList.add("hidden");
   correlationMatrix = null;
   correlationSites = [];
@@ -3291,17 +3343,47 @@ safeOn("resetBtn", "click", () => {
    INITIALISATION
    ========================================================= */
 function init(){
+  /* Résolution du pays actif */
+  activeCountry = resolveActiveCountry();
+
+  /* Vérifications */
   checkDependencies();
   checkRequiredElements();
+
+  /* Mise à jour de la topbar avec le pays */
+  updateTopbarCountry();
+
+  /* Bouton retour au menu */
+  safeOn("backToMenuBtn", "click", goBackToMenu);
+
+  /* NOUVEAU : bouton de déconnexion → modale custom */
+  safeOn("logoutBtn", "click", () => {
+    openModal("logoutModal");
+  });
+
+  /* Bouton "Annuler" de la modale */
+  safeOn("logoutCancelBtn", "click", () => {
+    closeModal("logoutModal");
+  });
+
+  /* Bouton "Se déconnecter" de la modale */
+  safeOn("logoutConfirmBtn", "click", () => {
+    try{ localStorage.removeItem("pl_country"); }catch(_){}
+    window.location.href = "index.html";
+  });
+
+  /* État initial */
   initTheme();
   initThresholds();
   loadAnnotations();
   overlaySites = storageGet(LS_KEYS.OVERLAY, []);
   initPeriod();
 
+  /* Écouteurs principaux */
   safeOn("periodPreset", "change", e => setPeriod(e.target.value));
   safeOn("analyzeBtn", "click", runAnalysis);
 
+  /* Modules */
   bindViewToggle();
   bindSavedModal();
   bindAnnotationModal();
@@ -3313,11 +3395,10 @@ function init(){
   bindTabs();
   bindWallboard();
   bindHelp();
-  bindActiveAlerts();
-  bindRectangleFilter();
-  bindOutageSimulation();
   bindAutoHubBtn();
-    bindHeatmapToggle();
+  bindViewSwitcher();
+  bindHeatmapToggle();
+  bindBaseLayerButtons();
   safeOn("tryExampleBtn", "click", tryExample);
 
   /* Charge les données référentielles */
@@ -3325,216 +3406,14 @@ function init(){
     console.log("✅ Données référentielles chargées.");
   });
 
-  /* Met à jour la fraîcheur toutes les 60s */
+  /* Fraîcheur des données toutes les 60s */
   setInterval(updateDataFreshness, 60000);
   updateDataFreshness();
 
-  console.log("🚀 Dashboard v20 initialisé.");
+  console.log(`🚀 Dashboard v23 initialisé — Pays : ${activeCountry} (${COUNTRY_MAP[activeCountry]?.name || "?"}).`);
 }
 
-
-/* =========================================================
-   V20.5 — HEATMAP SUR LA CARTE
-   ---------------------------------------------------------
-   Affiche un calque de cercles colorés sur la carte :
-   - Rayon proportionnel au taux de packet loss moyen
-   - Couleur : vert (faible) → jaune → orange → rouge (élevé)
-   - Regroupe visuellement les zones à problème
-   ========================================================= */
-function renderMapHeatmap(){
-  if(!map) return;
-
-  /* Nettoie le calque précédent */
-  if(heatmapLayer){
-    map.removeLayer(heatmapLayer);
-    heatmapLayer = null;
-  }
-
-  /* Récupère les sites avec localisation et packet loss */
-  const data = (lastSiteStats || [])
-    .map(s => {
-      const code = normalizeSite(s.Site);
-      const loc = locationIndex[code];
-      if(!loc) return null;
-      const lat = Number(loc.lat), lng = Number(loc.lng);
-      if(!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      return {
-        site: code,
-        lat, lng,
-        value: Number(s.avg_packet_loss) || 0,
-        threshold: thresholdFor(code),
-        vendor: s.vendor,
-        region: loc.region || "",
-        localite: loc.localite || ""
-      };
-    })
-    .filter(Boolean);
-
-  if(!data.length){
-    showMessage("Aucune donnée à afficher en heatmap.");
-    return;
-  }
-
-  /* Détermine la valeur maximale pour la normalisation */
-  const maxVal = Math.max(...data.map(d => d.value), 0.01);
-
-  /* Palette : vert → jaune → orange → rouge */
-  function colorForValue(v){
-    const ratio = Math.min(1, v / maxVal);
-    /* HSL : hue de 120 (vert) à 0 (rouge) */
-    const hue = 120 - ratio * 120;
-    const saturation = 70 + ratio * 20; /* plus c'est rouge, plus c'est saturé */
-    const lightness = 55 - ratio * 10;
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  }
-
-  /* Rayon de base : plus la valeur est élevée, plus le cercle est grand */
-  function radiusForValue(v){
-    const ratio = Math.min(1, v / maxVal);
-    /* Rayon : 15km minimum + 40km * ratio */
-    return 15000 + ratio * 45000;
-  }
-
-  const layers = [];
-
-  /* Dessine les cercles, du plus grand au plus petit pour l'effet de superposition */
-  const sorted = [...data].sort((a, b) => b.value - a.value);
-
-  sorted.forEach(d => {
-    const color = colorForValue(d.value);
-    const radius = radiusForValue(d.value);
-    const isImpacted = d.value > d.threshold;
-
-    /* Halo extérieur (effet de glow) */
-    const halo = L.circle([d.lat, d.lng], {
-      radius: radius * 1.4,
-      stroke: false,
-      fillColor: color,
-      fillOpacity: 0.10,
-      interactive: false
-    });
-
-    /* Cercle principal */
-    const circle = L.circle([d.lat, d.lng], {
-      radius: radius,
-      stroke: true,
-      color: color,
-      weight: 2,
-      opacity: 0.8,
-      fillColor: color,
-      fillOpacity: 0.35,
-      interactive: true
-    });
-
-    /* Tooltip au survol */
-    const statusLabel = isImpacted ? "Impacté" : "Sain";
-    const statusColor = isImpacted ? "#be123c" : "#047857";
-    circle.bindTooltip(`
-      <div style="font-family:Inter,Segoe UI,Arial,sans-serif">
-        <div style="font-weight:900;color:#fbbf24;margin-bottom:5px;font-size:13.5px">${escapeHtml(d.site)}</div>
-        <div style="font-weight:800;font-size:14px;margin-bottom:4px">${formatNumber(d.value)}%</div>
-        <div style="font-size:10.5px;opacity:.85;margin-bottom:3px">Seuil : ${d.threshold.toFixed(2)}%</div>
-        <div style="font-size:10.5px;font-weight:800;color:${statusColor};text-transform:uppercase;letter-spacing:.05em">${statusLabel}</div>
-        <div style="font-size:10px;opacity:.7;margin-top:5px">${escapeHtml(d.region)}${d.localite ? " • " + escapeHtml(d.localite) : ""}</div>
-      </div>`,
-      { sticky:true, direction:"top", className:"map-hover-tooltip", interactive:false }
-    );
-
-    /* Clic → mode HUB actif sur ce site */
-    circle.on("click", (ev) => {
-      if(ev && ev.originalEvent) L.DomEvent.stopPropagation(ev);
-      selectSite(d.site);
-    });
-
-    layers.push(halo, circle);
-  });
-
-  /* Ajoute le groupe au calque */
-  heatmapLayer = L.layerGroup(layers).addTo(map);
-
-  /* Affiche la légende */
-  showHeatmapLegend(maxVal);
-}
-
-function showHeatmapLegend(maxVal){
-  hideHeatmapLegend();
-  const mapPanel = $("mapPanel");
-  if(!mapPanel) return;
-  const legend = document.createElement("div");
-  legend.className = "map-heatmap-legend";
-  legend.id = "mapHeatmapLegend";
-  legend.innerHTML = `
-    <div class="map-heatmap-legend__title">
-      <i class="fa-solid fa-fire"></i> Heatmap Packet Loss
-    </div>
-    <div class="map-heatmap-legend__scale">
-      <span>0%</span>
-      <span class="map-heatmap-legend__gradient"></span>
-      <span>${formatNumber(maxVal, 2)}%</span>
-    </div>
-    <div class="map-heatmap-legend__labels">
-      <span>Faible</span>
-      <span>Élevé</span>
-    </div>
-    <div class="map-heatmap-legend__info">
-      <i class="fa-solid fa-circle-info"></i>
-      Rayon et couleur proportionnels au taux de perte moyen.
-    </div>
-  `;
-  mapPanel.appendChild(legend);
-}
-
-function hideHeatmapLegend(){
-  const el = $("mapHeatmapLegend");
-  if(el) el.remove();
-}
-
-/* Toggle de la heatmap */
-function toggleHeatmap(show){
-  heatmapActive = show !== undefined ? show : !heatmapActive;
-
-  /* Synchronise le checkbox */
-  const chk = $("toggleHeatmap");
-  if(chk) chk.checked = heatmapActive;
-
-  if(heatmapActive){
-    /* Cache les marqueurs classiques pour ne pas surcharger */
-    const markersVisible = mapFilterState.showSites;
-    if(markersVisible){
-      mapMarkers.forEach(m => m.remove());
-      mapMarkers = [];
-    }
-    /* Cache aussi les liaisons pour la lisibilité */
-    Object.values(mapLinkLayers).forEach(layer => { if(layer) layer.remove(); });
-    mapLinkLayers = {};
-
-    renderMapHeatmap();
-  } else {
-    /* Retire la heatmap */
-    if(heatmapLayer){
-      map.removeLayer(heatmapLayer);
-      heatmapLayer = null;
-    }
-    hideHeatmapLegend();
-    /* Restaure l'affichage classique */
-    if(lastResult){
-      renderNetworkLinksOnMap();
-      if(mapFilterState.showSites) renderMapMarkers(lastSiteStats);
-    }
-  }
-}
-
-/* Bind du checkbox heatmap */
-function bindHeatmapToggle(){
-  const chk = $("toggleHeatmap");
-  if(!chk) return;
-  chk.addEventListener("change", e => {
-    toggleHeatmap(e.target.checked);
-  });
-}
-
-/* Point d'entrée : on appelle init() dès que le script est chargé.
-   Si le DOM n'est pas prêt, on attend DOMContentLoaded. */
+/* Point d'entrée */
 if(document.readyState === "loading"){
   document.addEventListener("DOMContentLoaded", init);
 } else {
