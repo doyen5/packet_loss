@@ -44,7 +44,9 @@ const DEFAULT_COUNTRY = "CI";
    ========================================================= */
 const API_URL           = "api/packet_loss.php";
 const ALERTS_SAVE_URL   = "api/save_alerts.php";
-const ALERTS_TEST_URL   = "api/test_alert.php";
+const ALERTS_TEST_URL   = "api/test_alerts.php";
+/* Référentiel de coordonnées : fichier par pays, repli sur le référentiel CI historique.
+   Ex. Togo -> data/sites_location_TG.json ; Côte d'Ivoire -> data/sites_location.json. */
 const LOCATION_URL      = "data/sites_location.json";
 const DEFAULT_THRESHOLD = 0.1;
 
@@ -768,17 +770,23 @@ safeOn("excelFile", "change", async e => {
    CHARGEMENT LOCALISATION + LIENS
    ========================================================= */
 async function loadLocations(){
-  try{
-    const r = await fetch(LOCATION_URL,{cache:"no-store"});
-    if(!r.ok) throw new Error("Référentiel absent");
-    locationIndex = await r.json();
-    const infoEl = $("mapInfo");
-    if(infoEl) infoEl.textContent = `${Object.keys(locationIndex).length} localisations chargées.`;
-  }catch(e){
-    locationIndex = {};
-    const infoEl = $("mapInfo");
-    if(infoEl) infoEl.textContent = "Référentiel non disponible.";
+  /* On tente d'abord le référentiel du pays courant, puis le fichier CI historique. */
+  const candidates = [
+    `data/sites_location_${activeCountry}.json`,
+    LOCATION_URL
+  ];
+  const infoEl = $("mapInfo");
+  for(const url of candidates){
+    try{
+      const r = await fetch(url,{cache:"no-store"});
+      if(!r.ok) continue;
+      locationIndex = await r.json();
+      if(infoEl) infoEl.textContent = `${Object.keys(locationIndex).length} localisations chargées.`;
+      return;
+    }catch(_){ /* on essaie le candidat suivant */ }
   }
+  locationIndex = {};
+  if(infoEl) infoEl.textContent = "Référentiel non disponible.";
 }
 async function loadNetworkLinks(){
   await Promise.all(Object.entries(NETWORK_LINKS_URLS).map(async ([type, url]) => {
@@ -2833,7 +2841,7 @@ function bindCompare(){
    ========================================================= */
 async function loadAlertRules(){
   try{
-    const r = await fetch(ALERTS_SAVE_URL, { cache:"no-store" });
+    const r = await fetch(ALERTS_SAVE_URL + "?country=" + encodeURIComponent(activeCountry), { cache:"no-store" });
     if(!r.ok) throw new Error();
     const data = await r.json();
     if(!data.success || !data.rules) return;
@@ -3368,8 +3376,12 @@ function init(){
 
   /* Bouton "Se déconnecter" de la modale */
   safeOn("logoutConfirmBtn", "click", () => {
-    try{ localStorage.removeItem("pl_country"); }catch(_){}
-    window.location.href = "index.html";
+    if (window.PL && PL.logout) {
+      PL.logout();
+    } else {
+      try{ localStorage.removeItem("pl_country"); }catch(_){}
+      window.location.href = "login.html";
+    }
   });
 
   /* État initial */

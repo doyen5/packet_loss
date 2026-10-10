@@ -4,21 +4,25 @@
  */
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
+use Npm\Auth;
+use Npm\Http\Csrf;
+use Npm\Http\Json;
+use Npm\Mailer;
+use Npm\Rbac;
 
-if($_SERVER['REQUEST_METHOD'] !== 'POST'){
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'POST requis.']);
-    exit;
-}
+require_once __DIR__ . '/bootstrap.php';
 
-$input = json_decode(file_get_contents('php://input') ?: '', true);
-$email = filter_var($input['email'] ?? '', FILTER_VALIDATE_EMAIL);
+Auth::requireLogin();
+Rbac::require(Auth::role(), 'packet_loss.view');
 
-if(!$email){
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Email invalide.']);
-    exit;
+Json::requireMethod('POST');
+Csrf::requireValid();
+
+$input = Json::input();
+$email = filter_var(trim((string) ($input['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+
+if (!$email) {
+    Json::error('Email invalide.', 400);
 }
 
 $subject = "✅ Test d'alerte Packet Loss Intelligence";
@@ -28,13 +32,10 @@ $body    = "Ceci est un email de test.\n\n"
          . "leur seuil pendant la durée configurée.\n\n"
          . "— Packet Loss Intelligence";
 
-$headers = "From: alerts@packetloss.local\r\n"
-         . "Reply-To: alerts@packetloss.local\r\n"
-         . "Content-Type: text/plain; charset=UTF-8";
+$ok = Mailer::send((string) $email, $subject, $body);
 
-$ok = @mail($email, $subject, $body, $headers);
+if (!$ok) {
+    Json::error('Échec envoi (vérifier configuration SMTP).', 502);
+}
 
-echo json_encode([
-    'success' => $ok,
-    'message' => $ok ? 'Email envoyé.' : 'Échec envoi (vérifier configuration SMTP).'
-]);
+Json::ok(['message' => 'Email de test envoyé à ' . $email . '.']);

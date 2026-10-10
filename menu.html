@@ -7,6 +7,7 @@
 <title>Packet Loss Intelligence — Menu</title>
 <link rel="stylesheet" href="assets/css/font-awesome.min.css">
 <link rel="stylesheet" href="assets/css/home.css">
+<script src="assets/js/guard.js"></script>
 </head>
 <body class="home-page">
 
@@ -29,8 +30,16 @@
       </div>
     </div>
     <div class="home-topbar__actions">
+      <button id="adminMenuBtn" class="home-action home-action--with-label hidden" data-admin-only title="Administration">
+        <i class="fa-solid fa-user-gear"></i>
+        <span>Administration</span>
+      </button>
       <button id="darkModeBtn" class="home-action" title="Basculer le thème">
         <i class="fa-solid fa-moon"></i>
+      </button>
+      <button id="logoutMenuBtn" class="home-action home-action--with-label" title="Déconnexion">
+        <i class="fa-solid fa-right-from-bracket"></i>
+        <span>Déconnexion</span>
       </button>
     </div>
   </div>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Administration — Packet Loss Intelligence</title>
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/admin.css">
+<script src="assets/js/guard.js"></script>
+</head>
+<body class="admin-page">
+
+<header class="admin-topbar">
+  <div class="admin-topbar__inner">
+    <button id="backToMenuBtn" class="admin-action admin-action--with-label">
+      <i class="fa-solid fa-arrow-left"></i>
+      <span>Retour</span>
+    </button>
+    <div class="admin-brand">
+      <img src="assets/images/logo1.png" alt="NPM" class="admin-brand__logo">
+      <div class="admin-brand__name">
+        <h1>Administration</h1>
+        <p id="adminUserLabel">Chargement...</p>
+      </div>
+    </div>
+    <button id="adminLogoutBtn" class="admin-action admin-action--logout" title="Déconnexion">
+      <i class="fa-solid fa-right-from-bracket"></i>
+    </button>
+  </div>
+</header>
+
+<main class="admin-container">
+
+  <div id="adminPanel" class="admin-panel hidden">
+
+    <!-- ============ NOUVEL UTILISATEUR ============ -->
+    <section class="admin-card">
+      <header class="admin-card__head">
+        <i class="fa-solid fa-user-plus"></i>
+        <div><h2>Nouvel utilisateur</h2><p>Créez un compte et attribuez rôle + pays.</p></div>
+      </header>
+      <form id="createUserForm" class="admin-form">
+        <div class="admin-field">
+          <label for="nuEmail" class="admin-field__label">Email</label>
+          <input id="nuEmail" type="email" class="admin-input" required autocomplete="off">
+        </div>
+        <div class="admin-field">
+          <label for="nuName" class="admin-field__label">Nom complet</label>
+          <input id="nuName" type="text" class="admin-input" required autocomplete="off">
+        </div>
+        <div class="admin-field">
+          <label for="nuPassword" class="admin-field__label">Mot de passe (8+ caractères)</label>
+          <input id="nuPassword" type="password" class="admin-input" required autocomplete="new-password">
+        </div>
+        <div class="admin-field">
+          <label for="nuRole" class="admin-field__label">Rôle</label>
+          <select id="nuRole" class="admin-input"></select>
+        </div>
+        <div class="admin-field admin-field--countries">
+          <span class="admin-field__label">Pays accessibles</span>
+          <div id="nuCountries" class="admin-checks"></div>
+        </div>
+        <div class="admin-field admin-field--actions">
+          <button type="submit" class="admin-btn admin-btn--primary">
+            <i class="fa-solid fa-floppy-disk"></i> Créer
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============ LISTE DES UTILISATEURS ============ -->
+    <section class="admin-card admin-card--users">
+      <header class="admin-card__head">
+        <i class="fa-solid fa-users"></i>
+        <div><h2>Utilisateurs</h2><p id="usersCount"></p></div>
+      </header>
+      <div id="usersLoading" class="admin-message">
+        <i class="fa-solid fa-spinner fa-spin"></i> Chargement...
+      </div>
+      <div id="usersError" class="admin-message admin-message--error hidden"></div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Utilisateur</th>
+              <th>Rôle</th>
+              <th>Pays</th>
+              <th>Dernière connexion</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="adminForbidden" class="admin-forbidden hidden">
+    <i class="fa-solid fa-shield-halved"></i>
+    <h2>Accès réservé</h2>
+    <p>Cette console est réservée aux administrateurs.</p>
+    <a href="menu.html" class="admin-btn admin-btn--primary">Retour au menu</a>
+  </div>
+
+</main>
+
+<script src="assets/js/admin.js"></script>
+</body>
+</html>

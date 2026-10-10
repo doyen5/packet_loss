@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Connexion — Packet Loss Intelligence</title>
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/auth.css">
+</head>
+<body class="auth-page">
+
+<main class="auth-card">
+  <div class="auth-card__brand">
+    <img src="assets/images/logo1.png" alt="NPM" class="auth-card__logo">
+    <h1>Packet Loss <span>Intelligence</span></h1>
+    <p>Analyse réseau avancée</p>
+  </div>
+
+  <form id="loginForm" class="auth-form" novalidate>
+    <div class="auth-form__row">
+      <label for="email" class="auth-form__label">Email</label>
+      <input id="email" type="email" class="auth-form__input" placeholder="nom@operateur.ci"
+             autocomplete="username" required>
+    </div>
+    <div class="auth-form__row">
+      <label for="password" class="auth-form__label">Mot de passe</label>
+      <input id="password" type="password" class="auth-form__input" placeholder="••••••••"
+             autocomplete="current-password" required>
+    </div>
+    <div id="loginError" class="auth-error hidden"></div>
+    <button type="submit" class="auth-form__submit">
+      <i class="fa-solid fa-right-to-bracket"></i>
+      <span>Se connecter</span>
+    </button>
+  </form>
+
+  <p class="auth-card__hint">
+    Accès réservé aux administrateurs réseau.
+  </p>
+</main>
+
+<script src="assets/js/auth.js"></script>
+</body>
+</html>

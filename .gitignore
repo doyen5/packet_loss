@@ -1,0 +1,23 @@
+# Dépendances Composer
+/vendor/
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+
+# Artefacts générés à l'exécution
+/logs/*
+!/logs/.gitkeep
+/data/incidents.json
+/data/.last_alert_run
+/data/*.tmp
+/data/*.local.json
+
+# Sources binaires inutiles au runtime
+*.vsdx
+
+# Divers OS / éditeurs
+.DS_Store
+Thumbs.db
+*.log

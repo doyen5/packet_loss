@@ -1,88 +1,134 @@
 <?php
 /**
- * API — Sauvegarde et lecture des règles d'alerte email.
+ * API — Configuration des alertes email (une par utilisateur et par pays).
  *
- * GET  /api/save_alerts.php    → retourne les règles actuelles
- * POST /api/save_alerts.php    → enregistre de nouvelles règles
+ * GET  /api/save_alerts.php?country=CI    → retourne la configuration courante
+ * POST /api/save_alerts.php               → enregistre la configuration
+ *
+ * Remplaçait auparavant data/alert_rules.json ; la configuration est
+ * désormais stockée dans npm_core.alert_settings.
  */
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
+use Npm\Audit;
+use Npm\Auth;
+use Npm\Config;
+use Npm\Database;
+use Npm\Http\Csrf;
+use Npm\Http\Json;
+use Npm\Rbac;
 
-$rulesFile = __DIR__ . '/../data/alert_rules.json';
+require_once __DIR__ . '/bootstrap.php';
 
-/* Crée le dossier data/ si absent */
-$dataDir = dirname($rulesFile);
-if(!is_dir($dataDir)){
-    @mkdir($dataDir, 0775, true);
+Auth::requireLogin();
+Rbac::require(Auth::role(), 'packet_loss.view');
+
+$userId = (int) Auth::id();
+$method = Json::method();
+
+$input = $method === 'POST' ? Json::input() : [];
+$countryRaw = $method === 'POST'
+    ? ($input['country'] ?? '')
+    : ($_GET['country'] ?? '');
+
+$countryCode = strtoupper(trim((string) $countryRaw));
+$country = Config::get('countries.' . $countryCode);
+if (!is_array($country) || empty($country['enabled'])) {
+    Json::error('Pays inconnu ou désactivé.', 400);
 }
 
-/* ----- GET : retourne les règles ----- */
-if($_SERVER['REQUEST_METHOD'] === 'GET'){
-    if(!file_exists($rulesFile)){
-        echo json_encode([
-            'success' => true,
-            'rules'   => [
-                'email'     => '',
-                'min_hours' => 3,
-                'frequency' => 'hourly',
-                'sites'     => [],
-                'enabled'   => false,
-                'updated_at'=> null
-            ]
-        ]);
-        exit;
-    }
-    $rules = json_decode(file_get_contents($rulesFile), true) ?: [];
-    echo json_encode(['success' => true, 'rules' => $rules]);
-    exit;
+$user = Auth::user() ?? [];
+$allowed = array_map('strval', $user['countries'] ?? []);
+if (!Auth::superAdmin() && !in_array($countryCode, $allowed, true)) {
+    Json::error('Accès refusé : pays non autorisé pour votre compte.', 403);
+}
+
+$pdo = Database::core();
+
+/* ----- GET : retourne la configuration ----- */
+if ($method === 'GET') {
+    $stmt = $pdo->prepare(
+        'SELECT email, min_hours, frequency, sites, enabled, updated_at
+         FROM alert_settings WHERE user_id = ? AND country_code = ?'
+    );
+    $stmt->execute([$userId, $countryCode]);
+    $row = $stmt->fetch();
+
+    $rules = [
+        'email'      => (string) ($row['email'] ?? ''),
+        'min_hours'  => (int) ($row['min_hours'] ?? 3),
+        'frequency'  => (string) ($row['frequency'] ?? 'hourly'),
+        'sites'      => $row ? (json_decode((string) ($row['sites'] ?? '[]'), true) ?: []) : [],
+        'enabled'    => $row ? (bool) $row['enabled'] : false,
+        'updated_at' => $row['updated_at'] ?? null,
+    ];
+
+    Json::ok(['country' => $countryCode, 'rules' => $rules]);
 }
 
 /* ----- POST : enregistre ----- */
-if($_SERVER['REQUEST_METHOD'] !== 'POST'){
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
-    exit;
+if ($method !== 'POST') {
+    Json::error('Méthode non autorisée.', 405);
 }
 
-$input = json_decode(file_get_contents('php://input') ?: '', true);
-if(!is_array($input)){
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'JSON invalide.']);
-    exit;
+Csrf::requireValid();
+
+$email = filter_var(trim((string) ($input['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+if (!$email) {
+    Json::error('Email invalide.', 400);
 }
 
-$email     = filter_var($input['email'] ?? '', FILTER_VALIDATE_EMAIL);
-$minHours  = max(1, min(72, (int)($input['min_hours'] ?? 3)));
-$frequency = in_array($input['frequency'] ?? '', ['hourly','daily','weekly'], true)
-    ? $input['frequency'] : 'hourly';
-$sites     = [];
+$minHours  = max(1, min(72, (int) ($input['min_hours'] ?? 3)));
+$frequency = in_array($input['frequency'] ?? '', ['hourly', 'daily', 'weekly'], true)
+    ? (string) $input['frequency']
+    : 'hourly';
 
-foreach(($input['sites'] ?? []) as $s){
-    if(!is_scalar($s)) continue;
-    $site = strtoupper(trim((string)$s));
-    if($site !== '') $sites[] = $site;
+$sites = [];
+foreach ((array) ($input['sites'] ?? []) as $s) {
+    if (!is_scalar($s)) {
+        continue;
+    }
+    $site = strtoupper(trim((string) $s));
+    if ($site !== '') {
+        $sites[] = $site;
+    }
 }
 $sites = array_values(array_unique($sites));
 
-if(!$email){
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Email invalide.']);
-    exit;
-}
+$stmt = $pdo->prepare(
+    'INSERT INTO alert_settings (user_id, country_code, email, min_hours, frequency, sites, threshold, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, 0.1000, 1)
+     ON DUPLICATE KEY UPDATE
+        email = VALUES(email),
+        min_hours = VALUES(min_hours),
+        frequency = VALUES(frequency),
+        sites = VALUES(sites),
+        enabled = 1'
+);
+$stmt->execute([
+    $userId,
+    $countryCode,
+    (string) $email,
+    $minHours,
+    $frequency,
+    json_encode($sites, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+]);
 
-$rules = [
-    'email'      => $email,
-    'min_hours'  => $minHours,
-    'frequency'  => $frequency,
-    'sites'      => $sites,
-    'enabled'    => true,
-    'updated_at' => date('c')
-];
+Audit::log($userId, 'alert_settings.save', 'alert_settings', $countryCode, [
+    'email'     => $email,
+    'min_hours' => $minHours,
+    'frequency' => $frequency,
+    'sites'     => $sites,
+]);
 
-/* Écriture atomique */
-$tmp = $rulesFile . '.tmp';
-file_put_contents($tmp, json_encode($rules, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-rename($tmp, $rulesFile);
-
-echo json_encode(['success' => true, 'rules' => $rules]);
+Json::ok([
+    'country' => $countryCode,
+    'rules'   => [
+        'email'      => (string) $email,
+        'min_hours'  => $minHours,
+        'frequency'  => $frequency,
+        'sites'      => $sites,
+        'enabled'    => true,
+        'updated_at' => date('c'),
+    ],
+]);

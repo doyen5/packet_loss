@@ -3,106 +3,12 @@
    ---------------------------------------------------------
    - Détecte automatiquement sur quelle page on est
      (index.html = accueil, menu.html = choix du module)
-   - Charge la liste des pays
+   - Charge la liste des pays depuis l'API (pays du compte)
    - Gère le thème sombre (partagé avec le dashboard)
    - Gère les redirections
    ========================================================= */
 
 "use strict";
-
-/* =========================================================
-   CONFIGURATION DES PAYS
-   ---------------------------------------------------------
-   Pour ajouter un pays, il suffit d'ajouter une entrée ici.
-   - code : ISO 2 lettres (utilisé dans l'URL)
-   - name : nom affiché
-   - flag : emoji drapeau
-   - status : "active" (disponible) ou "soon" (à venir)
-   - description : texte descriptif
-   - modules : liste des modules disponibles pour ce pays
-   ========================================================= */
-const COUNTRIES = [
-  {
-    code: "CI",
-    name: "Côte d'Ivoire",
-    flag: "🇨🇮",
-    image: "assets/images/ci.png",
-    status: "active",
-    description: "Analyse du Packet Loss sur le réseau ivoirien. Détection des HUBs, corrélations et prédictions.",
-    modules: [
-      {
-        id: "packet_loss",
-        label: "Packet Loss",
-        page: "packet_loss.html",
-        status: "active"
-      }
-    ]
-  },
-  {
-    code: "TG",
-    name: "Togo",
-    flag: "🇹🇬",
-    image: "assets/images/tg.png",
-    status: "active",
-    description: "Analyse du Packet Loss sur le réseau togolais. Détection des HUBs, corrélations et prédictions.",
-    modules: [
-      {
-        id: "packet_loss",
-        label: "Packet Loss",
-        page: "packet_loss.html",
-        status: "active"
-      }
-    ]
-  },
-  {
-    code: "BJ",
-    name: "Bénin",
-    flag: "🇧🇯",
-    image: "assets/images/bj.png",
-    status: "active",
-    description: "Analyse du Packet Loss sur le réseau béninois. Détection des HUBs, corrélations et prédictions.",
-    modules: [
-      {
-        id: "packet_loss",
-        label: "Packet Loss",
-        page: "packet_loss.html",
-        status: "active"
-      }
-    ]
-  },
-  {
-    code: "NE",
-    name: "Niger",
-    flag: "🇳🇪",
-    image: "assets/images/ne.png",
-    status: "active",
-    description: "Analyse du Packet Loss sur le réseau nigérien. Détection des HUBs, corrélations et prédictions.",
-    modules: [
-      {
-        id: "packet_loss",
-        label: "Packet Loss",
-        page: "packet_loss.html",
-        status: "active"
-      }
-    ]
-  },
-  {
-    code: "CF",
-    name: "Centrafrique",
-    flag: "🇨🇫",
-    image: "assets/images/cf.png",
-    status: "active",
-    description: "Analyse du Packet Loss sur le réseau centrafricain. Détection des HUBs, corrélations et prédictions.",
-    modules: [
-      {
-        id: "packet_loss",
-        label: "Packet Loss",
-        page: "packet_loss.html",
-        status: "active"
-      }
-    ]
-  }
-];
 
 /* =========================================================
    CATALOGUE DES MODULES
@@ -180,6 +86,38 @@ const MODULES_CATALOG = [
 ];
 
 /* =========================================================
+   PAYS — chargés depuis l'API (api/countries.php)
+   La liste est filtrée côté serveur selon le compte connecté.
+   ========================================================= */
+let SERVER_COUNTRIES = [];
+
+async function loadCountries(){
+  try{
+    const res = await fetch("api/countries.php", { credentials: "same-origin" });
+    if(res.status === 401){
+      window.location.href = "login.html";
+      return false;
+    }
+    const data = await res.json();
+    SERVER_COUNTRIES = (data && Array.isArray(data.countries)) ? data.countries : [];
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+function getCountryConfig(code){
+  return SERVER_COUNTRIES.find(c => c.code === code) || null;
+}
+
+function countryDescription(country){
+  if(country.modules && country.modules.length > 0){
+    return "Analyse du Packet Loss sur le réseau " + country.name + ". Détection des HUBs, corrélations et prédictions.";
+  }
+  return "Modules d'analyse à venir pour ce pays.";
+}
+
+/* =========================================================
    HELPERS STORAGE
    ========================================================= */
 function storageGet(key, fallback){
@@ -224,15 +162,23 @@ function renderCountryGrid(){
   const grid = document.getElementById("countryGrid");
   if(!grid) return;
 
-  grid.innerHTML = COUNTRIES.map((c, i) => {
-    const isDisabled = c.status !== "active";
+  if(SERVER_COUNTRIES.length === 0){
+    grid.innerHTML = `<div class="country-loading">
+      <i class="fa-solid fa-circle-info"></i> Aucun pays disponible pour votre compte.
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = SERVER_COUNTRIES.map((c, i) => {
+    const hasModules = (c.modules || []).length > 0;
+    const isDisabled = !hasModules;
     const badgeClass = isDisabled ? "country-card__badge--soon" : "country-card__badge--active";
     const badgeText = isDisabled ? "Bientôt" : "Disponible";
     const moduleCount = (c.modules || []).length;
     return `
       <div class="country-card ${isDisabled ? "is-disabled" : ""}"
            data-country="${c.code}"
-           data-status="${c.status}"
+           data-status="${isDisabled ? "soon" : "active"}"
            style="animation-delay:${i * 0.05}s">
         <div class="country-card__head">
           <div class="country-card__flag">
@@ -245,7 +191,7 @@ function renderCountryGrid(){
           </div>
         </div>
         <span class="country-card__badge ${badgeClass}">${badgeText}</span>
-        <p class="country-card__desc">${c.description}</p>
+        <p class="country-card__desc">${countryDescription(c)}</p>
         <div class="country-card__footer">
           <span class="country-card__modules">
             <i class="fa-solid fa-cube"></i>
@@ -280,10 +226,6 @@ function getCountryFromURL(){
   return storageGet("pl_country", null);
 }
 
-function getCountryConfig(code){
-  return COUNTRIES.find(c => c.code === code) || null;
-}
-
 function renderMenu(){
   const countryCode = getCountryFromURL();
   const country = getCountryConfig(countryCode);
@@ -304,8 +246,8 @@ function renderMenu(){
   }
 
   /* Filtre les modules disponibles pour ce pays */
-  const availableModuleIds = (country.modules || []).map(m => m.id);
-  const isCountryActive = country.status === "active";
+  const availableModuleIds = (country.modules || []).map(m => m);
+  const isCountryActive = (country.modules || []).length > 0;
 
   /* Rend la grille des modules */
   const grid = document.getElementById("moduleGrid");
@@ -313,7 +255,7 @@ function renderMenu(){
 
   grid.innerHTML = MODULES_CATALOG.map((m, i) => {
     /* Un module est actif si :
-       - le pays est actif
+       - le pays a des modules
        - ET le module est dans la liste des modules du pays
        Sinon il est désactivé */
     const countryHasModule = isCountryActive && availableModuleIds.includes(m.id);
@@ -369,8 +311,11 @@ function isMenuPage(){
 /* =========================================================
    INITIALISATION
    ========================================================= */
-function init(){
+async function init(){
   initTheme();
+
+  const ok = await loadCountries();
+  if(!ok) return;
 
   if(isHomePage()){
     renderCountryGrid();
@@ -383,11 +328,25 @@ function init(){
         window.location.href = "index.html";
       });
     }
+    /* Bouton administration (visible si super admin via guard) */
+    const adminBtn = document.getElementById("adminMenuBtn");
+    if(adminBtn){
+      adminBtn.addEventListener("click", () => {
+        window.location.href = "admin.html";
+      });
+    }
+    /* Bouton déconnexion */
+    const logoutBtn = document.getElementById("logoutMenuBtn");
+    if(logoutBtn){
+      logoutBtn.addEventListener("click", () => {
+        if(window.PL && PL.logout) PL.logout();
+      });
+    }
   }
 }
 
 if(document.readyState === "loading"){
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", function(){ init(); });
 } else {
   init();
 }

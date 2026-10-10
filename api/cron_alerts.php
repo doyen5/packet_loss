@@ -1,159 +1,187 @@
 <?php
 /**
- * Script cron — Vérifie les alertes et envoie les emails.
+ * Script cron — Vérifie les alertes Packet Loss et envoie les emails.
+ *
+ * S'exécute UNIQUEMENT en ligne de commande.
  *
  * Installation crontab (toutes les heures) :
  *   0 * * * * /usr/bin/php /chemin/vers/api/cron_alerts.php >> /var/log/pl_alerts.log 2>&1
+ *
+ * La configuration est lue dans npm_core.alert_settings (une ligne par
+ * utilisateur et par pays, voir l'interface du tableau de bord).
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../api/packet_loss.php';
-
-$rulesFile = __DIR__ . '/../data/alert_rules.json';
-if(!file_exists($rulesFile)){
-    echo "[cron] Pas de fichier de règles, rien à faire.\n";
-    exit(0);
-}
-$rules = json_decode(file_get_contents($rulesFile), true) ?: [];
-
-if(empty($rules['enabled']) || empty($rules['email'])){
-    echo "[cron] Alertes désactivées.\n";
-    exit(0);
-}
-
-/* Fréquence : vérifie si c'est le bon moment */
-$now = new DateTime();
-$freq = $rules['frequency'] ?? 'hourly';
-$shouldRun = true;
-
-$lastRunFile = __DIR__ . '/../data/.last_alert_run';
-$lastRun = file_exists($lastRunFile) ? (int)file_get_contents($lastRunFile) : 0;
-$elapsed = time() - $lastRun;
-
-if($freq === 'daily' && $elapsed < 86400){
-    echo "[cron] Trop tôt (fréquence journalière).\n";
-    exit(0);
-}
-if($freq === 'weekly' && $elapsed < 604800){
-    echo "[cron] Trop tôt (fréquence hebdomadaire).\n";
-    exit(0);
-}
-
-/* Récupère la liste des sites à surveiller */
-$sitesToWatch = $rules['sites'] ?: [];
-
-/* Si aucun site explicite, on scanne tous les sites connus via une requête */
-/* Ici on suppose que les sites à surveiller sont explicitement listés.
-   Pour une surveillance globale, il faudrait une table des sites. */
-if(!$sitesToWatch){
-    echo "[cron] Aucun site configuré pour la surveillance.\n";
-    exit(0);
-}
-
-/* Période : les N dernières heures */
-$minHours = (int)($rules['min_hours'] ?? 3);
-$endDate   = date('Y-m-d');
-$startDate = date('Y-m-d', strtotime("-{$minHours} hours"));
-
-/* Appel interne à l'API Packet Loss */
-$_SERVER['REQUEST_METHOD'] = 'POST';
-$payload = json_encode([
-    'sites'      => $sitesToWatch,
-    'vendor'     => 'ALL',
-    'start_date' => $startDate,
-    'end_date'   => $endDate
-]);
-
-/* On duplique l'appel en local plutôt que de faire un HTTP */
-$input = json_decode($payload, true);
-
-/* Simple simulation : on va requêter directement avec getPDO() */
-/* On va utiliser un mini-wrapper pour récupérer les données */
-function runAnalysisInternal(array $input): array {
-    /* Reprise simplifiée de la logique de packet_loss.php */
-    /* Pour éviter de dupliquer, on peut faire un curl interne */
-    $url = 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . dirname($_SERVER['PHP_SELF']) . '/packet_loss.php';
-    /* En CLI, HTTP_HOST n'existe pas → fallback */
-    $url = 'http://localhost/api/packet_loss.php';
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($input),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 60
-    ]);
-    $resp = curl_exec($ch);
-    curl_close($ch);
-    return json_decode($resp ?: '{}', true) ?: [];
-}
-
-$result = runAnalysisInternal($input);
-if(empty($result['success'])){
-    echo "[cron] Erreur analyse : " . ($result['message'] ?? '?') . "\n";
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    echo "Réservé à l'exécution en ligne de commande.\n";
     exit(1);
 }
 
-/* Filtre les sites qui dépassent leur seuil */
-$defaultThreshold = 0.1;
-$thresholds = $rules['thresholds'] ?? [];
-$alertSites = [];
+use Npm\Database;
+use Npm\Logger;
+use Npm\Mailer;
+use Npm\PacketLossAnalyzer;
 
-foreach(($result['sites'] ?? []) as $site){
-    $code = strtoupper($site['Site']);
-    $thr = $thresholds[$code] ?? $defaultThreshold;
-    if((float)$site['avg_packet_loss'] > $thr){
-        $alertSites[] = [
-            'site'     => $code,
-            'avg'      => $site['avg_packet_loss'],
-            'max'      => $site['max_packet_loss'],
-            'vendor'   => $site['vendor'],
-            'threshold'=> $thr
-        ];
+require __DIR__ . '/bootstrap.php';
+
+/**
+ * @param list<array<string,mixed>> $alerts
+ */
+function recordIncidents(\PDO $pdo, string $country, array $alerts, float $threshold, string $start): void
+{
+    $find = $pdo->prepare(
+        "SELECT id FROM incidents
+         WHERE country_code = ? AND site = ? AND metric = 'packet_loss_rate' AND status = 'open'
+         LIMIT 1"
+    );
+    $insert = $pdo->prepare(
+        "INSERT INTO incidents (country_code, site, metric, value, threshold, status, details, started_at)
+         VALUES (?, ?, 'packet_loss_rate', ?, ?, 'open', ?, ?)"
+    );
+    $update = $pdo->prepare('UPDATE incidents SET value = ?, details = ? WHERE id = ?');
+
+    foreach ($alerts as $a) {
+        $details = json_encode([
+            'avg'        => $a['avg_packet_loss'] ?? 0,
+            'max'        => $a['max_packet_loss'] ?? 0,
+            'vendor'     => $a['vendor'] ?? '',
+            'nb_mesures' => $a['nb_mesures'] ?? 0,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $find->execute([$country, $a['Site']]);
+        $existing = $find->fetchColumn();
+
+        if ($existing) {
+            $update->execute([(float) ($a['avg_packet_loss'] ?? 0), $details, (int) $existing]);
+        } else {
+            $insert->execute([
+                $country,
+                (string) $a['Site'],
+                (float) ($a['avg_packet_loss'] ?? 0),
+                $threshold,
+                $details,
+                $start . ' 00:00:00',
+            ]);
+        }
     }
 }
 
-if(!$alertSites){
-    echo "[cron] Aucun site en alerte.\n";
-    file_put_contents($lastRunFile, time());
+/**
+ * @param list<array<string,mixed>> $alerts
+ */
+function sendAlertMail(
+    string $email,
+    string $country,
+    array $alerts,
+    int $minHours,
+    string $start,
+    string $end,
+    float $threshold
+): bool {
+    $subject = sprintf('[Packet Loss] %d site(s) en alerte depuis %dh', count($alerts), $minHours);
+
+    $lines = [];
+    $lines[] = 'Bonjour,';
+    $lines[] = '';
+    $lines[] = sprintf('%d site(s) dépassent leur seuil depuis plus de %d heure(s) :', count($alerts), $minHours);
+    $lines[] = '';
+    $lines[] = str_pad('Site', 12) . str_pad('Moyenne', 12) . str_pad('Pic', 12) . str_pad('Seuil', 10) . 'Vendor';
+    $lines[] = str_repeat('-', 62);
+    foreach ($alerts as $a) {
+        $lines[] = str_pad((string) $a['Site'], 12)
+                 . str_pad(number_format((float) $a['avg_packet_loss'], 4) . '%', 12)
+                 . str_pad(number_format((float) $a['max_packet_loss'], 4) . '%', 12)
+                 . str_pad(number_format($threshold, 2) . '%', 10)
+                 . (string) ($a['vendor'] ?? '');
+    }
+    $lines[] = '';
+    $lines[] = "Pays : $country";
+    $lines[] = "Période analysée : {$start} → {$end}";
+    $lines[] = 'Généré le : ' . date('d/m/Y H:i');
+    $lines[] = '';
+    $lines[] = '— Packet Loss Intelligence';
+
+    return Mailer::send($email, $subject, implode("\n", $lines));
+}
+
+$pdo = Database::core();
+$rows = $pdo->query(
+    "SELECT * FROM alert_settings WHERE enabled = 1 AND email <> ''"
+)->fetchAll();
+
+if (!$rows) {
+    echo "[cron] Aucune configuration d'alerte active.\n";
     exit(0);
 }
 
-/* Compose le mail */
-$subject = sprintf(
-    "[Packet Loss] %d site(s) en alerte depuis %dh",
-    count($alertSites), $minHours
-);
+$freqSeconds = ['hourly' => 3600, 'daily' => 86400, 'weekly' => 604800];
+$now = time();
+$totalAlerts = 0;
 
-$lines = [];
-$lines[] = "Bonjour,";
-$lines[] = "";
-$lines[] = sprintf("%d site(s) dépassent leur seuil depuis plus de %d heure(s) :", count($alertSites), $minHours);
-$lines[] = "";
-$lines[] = str_pad("Site", 10) . str_pad("Moyenne", 12) . str_pad("Pic", 12) . str_pad("Seuil", 10) . "Vendor";
-$lines[] = str_repeat("-", 60);
-foreach($alertSites as $s){
-    $lines[] = str_pad($s['site'], 10)
-             . str_pad(number_format($s['avg'], 4) . '%', 12)
-             . str_pad(number_format($s['max'], 4) . '%', 12)
-             . str_pad(number_format($s['threshold'], 2) . '%', 10)
-             . $s['vendor'];
+$markRun = $pdo->prepare('UPDATE alert_settings SET last_run_at = NOW() WHERE id = ?');
+$markTriggered = $pdo->prepare('UPDATE alert_settings SET last_triggered_at = NOW() WHERE id = ?');
+
+foreach ($rows as $row) {
+    $id        = (int) $row['id'];
+    $country   = (string) $row['country_code'];
+    $email     = (string) $row['email'];
+    $minHours  = max(1, (int) $row['min_hours']);
+    $frequency = (string) $row['frequency'];
+    $threshold = (float) ($row['threshold'] ?: 0.1);
+    $sites     = json_decode((string) ($row['sites'] ?? '[]'), true) ?: [];
+
+    $interval = $freqSeconds[$frequency] ?? 3600;
+    if (!empty($row['last_run_at'])) {
+        $elapsed = $now - strtotime((string) $row['last_run_at']);
+        if ($elapsed < $interval) {
+            echo "[cron] #$id $country : trop tôt ({$elapsed}s < {$interval}s).\n";
+            continue;
+        }
+    }
+
+    if (!$sites) {
+        echo "[cron] #$id $country : aucun site configuré.\n";
+        $markRun->execute([$id]);
+        continue;
+    }
+
+    $end   = date('Y-m-d');
+    $start = date('Y-m-d', $now - $minHours * 3600);
+
+    try {
+        $result = PacketLossAnalyzer::analyze($country, $sites, $start, $end, 'ALL', $threshold);
+    } catch (\Throwable $e) {
+        Logger::error('[cron] analyse ' . $country . ' : ' . $e->getMessage());
+        echo "[cron] #$id $country : erreur d'analyse.\n";
+        continue;
+    }
+
+    $markRun->execute([$id]);
+
+    $alerts = [];
+    foreach (($result['sites'] ?? []) as $s) {
+        if ((float) $s['avg_packet_loss'] > $threshold) {
+            $alerts[] = $s;
+        }
+    }
+
+    if (!$alerts) {
+        echo "[cron] #$id $country : aucun site en alerte.\n";
+        continue;
+    }
+
+    recordIncidents($pdo, $country, $alerts, $threshold, $start);
+
+    if (sendAlertMail($email, $country, $alerts, $minHours, $start, $end, $threshold)) {
+        echo "[cron] #$id $country : mail envoyé à $email (" . count($alerts) . " site(s)).\n";
+    } else {
+        echo "[cron] #$id $country : échec envoi mail.\n";
+    }
+
+    $markTriggered->execute([$id]);
+    $totalAlerts += count($alerts);
 }
-$lines[] = "";
-$lines[] = "Période analysée : {$startDate} → {$endDate}";
-$lines[] = "Généré le : " . date('d/m/Y H:i');
-$lines[] = "";
-$lines[] = "— Packet Loss Intelligence";
 
-$body = implode("\n", $lines);
-$headers = "From: alerts@packetloss.local\r\n"
-         . "Reply-To: alerts@packetloss.local\r\n"
-         . "Content-Type: text/plain; charset=UTF-8";
-
-$ok = @mail($rules['email'], $subject, $body, $headers);
-echo $ok
-    ? "[cron] Mail envoyé à {$rules['email']} ({$subject}).\n"
-    : "[cron] Échec envoi mail.\n";
-
-file_put_contents($lastRunFile, time());
+echo "[cron] Terminé. Sites en alerte : $totalAlerts\n";
+exit(0);
