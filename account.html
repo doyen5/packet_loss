@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="assets/images/favicon.ico">
+<title>Mon compte — Packet Loss Intelligence</title>
+<link rel="stylesheet" href="assets/css/font-awesome.min.css">
+<link rel="stylesheet" href="assets/css/home.css">
+<link rel="stylesheet" href="assets/css/account.css">
+<script src="assets/js/guard.js"></script>
+</head>
+<body class="home-page">
+
+<header class="home-topbar">
+  <div class="home-topbar__inner">
+    <a href="index.html" class="home-action home-action--with-label" data-i18n-title="nav.home" title="Accueil">
+      <i class="fa-solid fa-arrow-left"></i>
+      <span data-i18n="nav.home">Accueil</span>
+    </a>
+    <div class="home-brand home-brand--compact">
+      <div class="home-brand__logo">
+        <img src="assets/images/logo1.png" alt="NPM" class="home-brand__logo-img">
+      </div>
+      <div class="home-brand__name">
+        <h1 data-i18n-html="account.title">Mon <span>compte</span></h1>
+        <p id="accountSubtitle">Chargement...</p>
+      </div>
+    </div>
+    <div class="home-topbar__actions">
+      <button id="darkModeBtn" class="home-action" data-i18n-title="nav.theme" title="Basculer le thème">
+        <i class="fa-solid fa-moon"></i>
+      </button>
+      <button id="logoutAccountBtn" class="home-action home-action--with-label" data-i18n-title="nav.logout" title="Déconnexion">
+        <i class="fa-solid fa-right-from-bracket"></i>
+        <span data-i18n="nav.logout">Déconnexion</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="account-container">
+  <div id="accountError" class="account-message account-message--error hidden"></div>
+  <div id="accountSuccess" class="account-message account-message--success hidden"></div>
+
+  <section class="account-card">
+    <header class="account-card__head">
+      <i class="fa-solid fa-id-card"></i>
+      <div><h2 data-i18n="account.profile.title">Profil</h2><p data-i18n="account.profile.sub">Identité et préférences par défaut.</p></div>
+    </header>
+    <div class="account-card__body">
+      <div class="account-grid">
+        <label class="account-field">
+          <span data-i18n="account.field.fullname">Nom complet</span>
+          <input id="pfFullName" type="text" class="account-input">
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.email">Email</span>
+          <input id="pfEmail" type="email" class="account-input" disabled>
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.role">Rôle</span>
+          <input id="pfRole" type="text" class="account-input" disabled>
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.countries">Pays autorisés</span>
+          <input id="pfCountries" type="text" class="account-input" disabled>
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.theme">Thème par défaut</span>
+          <select id="pfTheme" class="account-input">
+            <option value="light">Clair</option>
+            <option value="dark">Sombre</option>
+          </select>
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.threshold">Seuil par défaut (%)</span>
+          <input id="pfThreshold" type="number" step="0.01" min="0" class="account-input">
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.refresh">Rafraîchissement (s)</span>
+          <input id="pfRefresh" type="number" step="5" min="0" class="account-input">
+        </label>
+        <label class="account-field account-field--check">
+          <input id="pfEmailAlerts" type="checkbox">
+          <span data-i18n="account.field.emailAlerts">Recevoir les alertes par email</span>
+        </label>
+      </div>
+      <button id="pfSaveBtn" class="account-btn" data-i18n="account.profile.save">Enregistrer le profil</button>
+    </div>
+  </section>
+
+  <section class="account-card">
+    <header class="account-card__head">
+      <i class="fa-solid fa-lock"></i>
+      <div><h2 data-i18n="account.security.title">Sécurité</h2><p data-i18n="account.security.sub">Mot de passe et double authentification.</p></div>
+    </header>
+    <div class="account-card__body">
+      <div class="account-grid account-grid--password">
+        <label class="account-field">
+          <span data-i18n="account.field.pwCurrent">Mot de passe actuel</span>
+          <input id="pwCurrent" type="password" class="account-input" autocomplete="current-password">
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.pwNew">Nouveau mot de passe</span>
+          <input id="pwNew" type="password" class="account-input" autocomplete="new-password">
+        </label>
+        <label class="account-field">
+          <span data-i18n="account.field.pwConfirm">Confirmer</span>
+          <input id="pwConfirm" type="password" class="account-input" autocomplete="new-password">
+        </label>
+      </div>
+      <button id="pwSaveBtn" class="account-btn" data-i18n="account.security.changePw">Changer le mot de passe</button>
+
+      <hr class="account-sep">
+
+      <div class="account-2fa">
+        <div>
+          <strong data-i18n="account.security.tfa">Double authentification (email)</strong>
+          <p id="tfaStatus" class="account-muted">Chargement...</p>
+        </div>
+        <div class="account-2fa__actions">
+          <button id="tfaEnableBtn" class="account-btn" data-i18n="account.security.enable">Activer</button>
+          <button id="tfaDisableBtn" class="account-btn account-btn--ghost" data-i18n="account.security.disable">Désactiver</button>
+        </div>
+      </div>
+      <div id="tfaConfirmBox" class="account-2fa__confirm hidden">
+        <input id="tfaCode" type="text" inputmode="numeric" maxlength="6" class="account-input" data-i18n-placeholder="account.security.code" placeholder="Code à 6 chiffres">
+        <button id="tfaConfirmBtn" class="account-btn" data-i18n="account.security.confirmEnable">Confirmer l'activation</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="account-card">
+    <header class="account-card__head">
+      <i class="fa-solid fa-desktop"></i>
+      <div><h2 data-i18n="account.sessions.title">Sessions actives</h2><p data-i18n="account.sessions.sub">Appareils connectés à votre compte.</p></div>
+    </header>
+    <div class="account-card__body">
+      <div class="account-actions">
+        <button id="sessOthersBtn" class="account-btn account-btn--ghost" data-i18n="account.sessions.others">Déconnecter les autres sessions</button>
+        <button id="sessAllBtn" class="account-btn account-btn--danger" data-i18n="account.sessions.all">Déconnecter partout</button>
+      </div>
+      <table class="account-table">
+        <thead><tr><th data-i18n="account.sessions.device">Appareil</th><th data-i18n="account.sessions.ip">IP</th><th data-i18n="account.sessions.last">Dernière activité</th><th></th></tr></thead>
+        <tbody id="sessionsBody"><tr><td colspan="4" class="account-muted">Chargement...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="account-card">
+    <header class="account-card__head">
+      <i class="fa-solid fa-bell"></i>
+      <div><h2 data-i18n="account.notifs.title">Notifications</h2><p data-i18n="account.notifs.sub">Messages et événements récents.</p></div>
+    </header>
+    <div class="account-card__body">
+      <button id="notifReadAllBtn" class="account-btn account-btn--ghost" data-i18n="account.notifs.readAll">Tout marquer comme lu</button>
+      <ul id="notifList" class="account-notifs"><li class="account-muted">Chargement...</li></ul>
+    </div>
+  </section>
+</main>
+
+<script src="assets/js/i18n.js"></script>
+<script src="assets/js/account.js"></script>
+</body>
+</html>

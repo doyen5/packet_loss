@@ -20,7 +20,9 @@ use Npm\Database;
 use Npm\Http\Csrf;
 use Npm\Http\Json;
 use Npm\Rbac;
+use Npm\Repositories\SessionRepository;
 use Npm\Repositories\UserRepository;
+use Npm\Security\PasswordPolicy;
 use Npm\Validator;
 
 require __DIR__ . '/../bootstrap.php';
@@ -115,8 +117,9 @@ function createUser(array $input, array $pdoCountries, int $meId): never
     if (mb_strlen($fullName) < 2) {
         Json::error('Nom complet trop court.', 422);
     }
-    if (mb_strlen($password) < 8) {
-        Json::error('Mot de passe : 8 caractères minimum.', 422);
+    $policyError = PasswordPolicy::validate($password);
+    if ($policyError !== null) {
+        Json::error($policyError, 422);
     }
     if (!Rbac::isValidRole($role)) {
         Json::error('Rôle invalide.', 422);
@@ -220,6 +223,12 @@ function updateUser(array $input, array $pdoCountries, int $meId): never
         'role' => $role, 'active' => (bool) $isActive, 'countries' => $countries,
     ]);
 
+    // Un changement de rôle ou une désactivation invalide les sessions ouvertes.
+    if ((string) $row['role'] !== $role || $isActive === 0) {
+        UserRepository::bumpSessionVersion($userId);
+        SessionRepository::revokeAllForUser($userId);
+    }
+
     Json::ok(['message' => 'Utilisateur mis à jour.']);
 }
 
@@ -230,8 +239,9 @@ function resetPassword(array $input, int $meId): never
         Json::error('Identifiant utilisateur manquant.', 422);
     }
     $password = (string) ($input['password'] ?? '');
-    if (mb_strlen($password) < 8) {
-        Json::error('Mot de passe : 8 caractères minimum.', 422);
+    $policyError = PasswordPolicy::validate($password);
+    if ($policyError !== null) {
+        Json::error($policyError, 422);
     }
 
     $row = UserRepository::findById($userId);
@@ -240,6 +250,11 @@ function resetPassword(array $input, int $meId): never
     }
 
     UserRepository::updatePassword($userId, password_hash($password, PASSWORD_DEFAULT));
+    UserRepository::bumpSessionVersion($userId);
+    SessionRepository::revokeAllForUser($userId);
+    if ($userId === $meId) {
+        Auth::refreshSession();
+    }
     Audit::log($meId, 'users.password', 'user', (string) $userId);
     Json::ok(['message' => 'Mot de passe réinitialisé.']);
 }

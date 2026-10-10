@@ -14,32 +14,51 @@
   <div class="auth-card__brand">
     <img src="assets/images/logo1.png" alt="NPM" class="auth-card__logo">
     <h1>Packet Loss <span>Intelligence</span></h1>
-    <p>Analyse réseau avancée</p>
+    <p data-i18n="login.tagline">Analyse réseau avancée</p>
   </div>
 
   <form id="loginForm" class="auth-form" novalidate>
     <div class="auth-form__row">
-      <label for="email" class="auth-form__label">Email</label>
+      <label for="email" class="auth-form__label" data-i18n="login.email">Email</label>
       <input id="email" type="email" class="auth-form__input" placeholder="nom@operateur.ci"
              autocomplete="username" required>
     </div>
     <div class="auth-form__row">
-      <label for="password" class="auth-form__label">Mot de passe</label>
+      <label for="password" class="auth-form__label" data-i18n="login.password">Mot de passe</label>
       <input id="password" type="password" class="auth-form__input" placeholder="••••••••"
              autocomplete="current-password" required>
     </div>
     <div id="loginError" class="auth-error hidden"></div>
     <button type="submit" class="auth-form__submit">
       <i class="fa-solid fa-right-to-bracket"></i>
-      <span>Se connecter</span>
+      <span data-i18n="login.submit">Se connecter</span>
     </button>
   </form>
 
-  <p class="auth-card__hint">
+  <form id="otpForm" class="auth-form hidden" novalidate>
+    <p class="auth-form__label" data-i18n="login.otp.hint">Saisissez le code à 6 chiffres envoyé par email.</p>
+    <div class="auth-form__row">
+      <label for="otpCode" class="auth-form__label" data-i18n="login.otp.label">Code de vérification</label>
+      <input id="otpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+             class="auth-form__input" placeholder="••••••" autocomplete="one-time-code" required>
+    </div>
+    <div id="otpError" class="auth-error hidden"></div>
+    <button type="submit" class="auth-form__submit">
+      <i class="fa-solid fa-shield-halved"></i>
+      <span data-i18n="login.otp.submit">Vérifier</span>
+    </button>
+    <button type="button" id="otpBack" class="auth-form__submit auth-form__submit--ghost">
+      <i class="fa-solid fa-arrow-left"></i>
+      <span data-i18n="login.otp.back">Retour</span>
+    </button>
+  </form>
+
+  <p class="auth-card__hint" data-i18n="login.hint">
     Accès réservé aux administrateurs réseau.
   </p>
 </main>
 
+<script src="assets/js/i18n.js"></script>
 <script src="assets/js/auth.js"></script>
 </body>
 </html>

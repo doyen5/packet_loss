@@ -13,7 +13,8 @@ final class UserRepository
 {
     private const SELECT =
         'SELECT u.id, u.email, u.password_hash, u.full_name, u.role_id, u.is_active,
-                u.last_login, r.name AS role
+                u.last_login, u.session_version, u.two_factor_enabled, u.preferences,
+                r.name AS role
          FROM users u JOIN roles r ON r.id = u.role_id';
 
     public static function findByEmail(string $email): ?array
@@ -42,6 +43,13 @@ final class UserRepository
         return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
+    public static function idsForCountry(string $code): array
+    {
+        $stmt = Database::core()->prepare('SELECT user_id FROM user_countries WHERE country_code = ?');
+        $stmt->execute([$code]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     public static function touchLastLogin(int $userId): void
     {
         $stmt = Database::core()->prepare('UPDATE users SET last_login = NOW() WHERE id = ?');
@@ -52,6 +60,49 @@ final class UserRepository
     {
         $stmt = Database::core()->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
         $stmt->execute([$hash, $userId]);
+    }
+
+    public static function updateFullName(int $userId, string $fullName): void
+    {
+        Database::core()->prepare('UPDATE users SET full_name = ? WHERE id = ?')->execute([$fullName, $userId]);
+    }
+
+    public static function sessionVersion(int $userId): int
+    {
+        $stmt = Database::core()->prepare('SELECT session_version FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        $v = $stmt->fetchColumn();
+        return $v === false ? 0 : (int) $v;
+    }
+
+    /** Invalide toutes les sessions existantes de l'utilisateur. */
+    public static function bumpSessionVersion(int $userId): void
+    {
+        Database::core()->prepare('UPDATE users SET session_version = session_version + 1 WHERE id = ?')
+            ->execute([$userId]);
+    }
+
+    public static function setTwoFactor(int $userId, bool $enabled): void
+    {
+        Database::core()->prepare('UPDATE users SET two_factor_enabled = ? WHERE id = ?')
+            ->execute([$enabled ? 1 : 0, $userId]);
+    }
+
+    /** @return array<string,mixed> */
+    public static function preferences(int $userId): array
+    {
+        $stmt = Database::core()->prepare('SELECT preferences FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        $json = $stmt->fetchColumn();
+        $data = $json !== false && $json !== null ? json_decode((string) $json, true) : [];
+        return is_array($data) ? $data : [];
+    }
+
+    /** @param array<string,mixed> $prefs */
+    public static function setPreferences(int $userId, array $prefs): void
+    {
+        Database::core()->prepare('UPDATE users SET preferences = ? WHERE id = ?')
+            ->execute([json_encode($prefs, JSON_UNESCAPED_UNICODE), $userId]);
     }
 
     public static function recordLoginAttempt(string $email, ?string $ip, bool $success): void

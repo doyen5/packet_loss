@@ -22,6 +22,9 @@ use Npm\Database;
 use Npm\Logger;
 use Npm\Mailer;
 use Npm\PacketLossAnalyzer;
+use Npm\Repositories\SessionRepository;
+use Npm\Security\Otp;
+use Npm\Security\RateLimiter;
 
 require __DIR__ . '/bootstrap.php';
 
@@ -105,7 +108,98 @@ function sendAlertMail(
     return Mailer::send($email, $subject, implode("\n", $lines));
 }
 
+/** Purge des données de rétention (tentatives, audit, jetons, OTP). */
+function purgeRetention(\PDO $pdo): void
+{
+    $queries = [
+        'DELETE FROM login_attempts WHERE attempted_at < (NOW() - INTERVAL 90 DAY)',
+        'DELETE FROM audit_log WHERE created_at < (NOW() - INTERVAL 365 DAY)',
+    ];
+    foreach ($queries as $sql) {
+        try {
+            $rows = $pdo->exec($sql);
+            echo "[cron] purge : $rows ligne(s) supprimée(s).\n";
+        } catch (\Throwable $e) {
+            // table ou colonne absente : on ignore.
+        }
+    }
+    try { RateLimiter::purge(); } catch (\Throwable $e) {}
+    try { SessionRepository::purge(60); } catch (\Throwable $e) {}
+    try { Otp::purge(7); } catch (\Throwable $e) {}
+}
+
+/** Traite les rapports planifiés par email (report_schedules). */
+function processReports(\PDO $pdo): void
+{
+    $rows = $pdo->query("SELECT * FROM report_schedules WHERE enabled = 1 AND recipients <> ''")->fetchAll();
+    if (!$rows) {
+        return;
+    }
+
+    $freqSeconds = ['daily' => 86400, 'weekly' => 604800, 'monthly' => 2592000];
+    $now = time();
+    $markRun = $pdo->prepare('UPDATE report_schedules SET last_run_at = NOW() WHERE id = ?');
+    $markSent = $pdo->prepare('UPDATE report_schedules SET last_sent_at = NOW() WHERE id = ?');
+    $topStmt = $pdo->prepare(
+        "SELECT site, COUNT(*) AS nb FROM incidents
+         WHERE country_code = ? AND status <> 'resolved'
+         GROUP BY site ORDER BY nb DESC LIMIT 20"
+    );
+    $openStmt = $pdo->prepare("SELECT COUNT(*) FROM incidents WHERE country_code = ? AND status = 'open'");
+
+    foreach ($rows as $row) {
+        $id = (int) $row['id'];
+        $interval = $freqSeconds[(string) $row['frequency']] ?? 604800;
+        if (!empty($row['last_run_at'])) {
+            $elapsed = $now - strtotime((string) $row['last_run_at']);
+            if ($elapsed < $interval) {
+                continue;
+            }
+        }
+        $markRun->execute([$id]);
+
+        $country = (string) $row['country_code'];
+        $topStmt->execute([$country]);
+        $top = $topStmt->fetchAll();
+        $openStmt->execute([$country]);
+        $open = (int) $openStmt->fetchColumn();
+
+        $lines = [];
+        $lines[] = 'Bonjour,';
+        $lines[] = '';
+        $lines[] = "Rapport Packet Loss — $country (" . (string) $row['frequency'] . ')';
+        $lines[] = "Incidents ouverts : $open";
+        $lines[] = '';
+        if ($top) {
+            $lines[] = 'Sites les plus impactés (non résolus) :';
+            foreach ($top as $t) {
+                $lines[] = sprintf(' - %s : %d', (string) $t['site'], (int) $t['nb']);
+            }
+        } else {
+            $lines[] = 'Aucun incident non résolu.';
+        }
+        $lines[] = '';
+        $lines[] = 'Généré le : ' . date('d/m/Y H:i');
+        $lines[] = '— Packet Loss Intelligence';
+        $body = implode("\n", $lines);
+
+        $recipients = array_filter(array_map('trim', explode(',', (string) $row['recipients'])));
+        $sent = 0;
+        foreach ($recipients as $r) {
+            if ($r !== '' && Mailer::send($r, sprintf('[Packet Loss] Rapport %s', $country), $body)) {
+                $sent++;
+            }
+        }
+        if ($sent > 0) {
+            $markSent->execute([$id]);
+        }
+        echo "[cron] rapport #$id $country : $sent/" . count($recipients) . " destinataire(s).\n";
+    }
+}
+
 $pdo = Database::core();
+purgeRetention($pdo);
+processReports($pdo);
 $rows = $pdo->query(
     "SELECT * FROM alert_settings WHERE enabled = 1 AND email <> ''"
 )->fetchAll();

@@ -16,9 +16,9 @@
      ============================================================ -->
 <header class="home-topbar">
   <div class="home-topbar__inner">
-    <button id="backToHomeBtn" class="home-action home-action--with-label">
+    <button id="backToHomeBtn" class="home-action home-action--with-label" data-i18n-title="menu.back" title="Changer de pays">
       <i class="fa-solid fa-arrow-left"></i>
-      <span>Changer de pays</span>
+      <span data-i18n="menu.back">Changer de pays</span>
     </button>
     <div class="home-brand home-brand--compact">
       <div class="home-brand__logo">
@@ -30,16 +30,19 @@
       </div>
     </div>
     <div class="home-topbar__actions">
-      <button id="adminMenuBtn" class="home-action home-action--with-label hidden" data-admin-only title="Administration">
+      <button id="adminMenuBtn" class="home-action home-action--with-label hidden" data-admin-only data-i18n-title="nav.admin" title="Administration">
         <i class="fa-solid fa-user-gear"></i>
-        <span>Administration</span>
+        <span data-i18n="nav.admin">Administration</span>
       </button>
-      <button id="darkModeBtn" class="home-action" title="Basculer le thème">
+      <button id="darkModeBtn" class="home-action" data-i18n-title="nav.theme" title="Basculer le thème">
         <i class="fa-solid fa-moon"></i>
       </button>
-      <button id="logoutMenuBtn" class="home-action home-action--with-label" title="Déconnexion">
+      <a href="account.html" class="home-action" data-i18n-title="nav.account" title="Mon compte">
+        <i class="fa-solid fa-user"></i>
+      </a>
+      <button id="logoutMenuBtn" class="home-action home-action--with-label" data-i18n-title="nav.logout" title="Déconnexion">
         <i class="fa-solid fa-right-from-bracket"></i>
-        <span>Déconnexion</span>
+        <span data-i18n="nav.logout">Déconnexion</span>
       </button>
     </div>
   </div>
@@ -53,10 +56,10 @@
     <span class="home-hero__eyebrow" id="menuCountryBadge">
       <i class="fa-solid fa-flag"></i> Chargement...
     </span>
-    <h2 class="home-hero__title">
+    <h2 class="home-hero__title" data-i18n-html="menu.title">
       Que souhaitez-vous <span>visualiser</span> ?
     </h2>
-    <p class="home-hero__subtitle">
+    <p class="home-hero__subtitle" data-i18n="menu.subtitle">
       Choisissez un module d'analyse pour démarrer votre consultation.
     </p>
   </div>
@@ -71,6 +74,8 @@
   </div>
 </main>
 
+<script src="assets/js/i18n.js"></script>
 <script src="assets/js/home.js"></script>
+<script src="assets/js/notify.js"></script>
 </body>
 </html>

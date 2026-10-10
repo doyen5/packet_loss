@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="assets/css/dashboard.css">
 <link rel="stylesheet" href="assets/css/leaflet.css">
 <script src="assets/js/guard.js"></script>
+<script src="assets/js/i18n.js"></script>
 </head>
 <body>
 
@@ -26,36 +27,47 @@
       </div>
       <div class="brand__name">
         <h1>Packet Loss <span>Intelligence</span></h1>
-        <p>Analyse réseau avancée <em>•</em> Seuil <strong>0.1%</strong></p>
+        <p data-i18n-html="pl.brand.tagline">Analyse réseau avancée <em>•</em> Seuil <strong>0.1%</strong></p>
       </div>
     </div>
 
     <!-- Boutons d'action -->
     <div class="topbar__actions">
-      <button id="helpBtn" class="topbar__action" title="Aide & glossaire">
+      <button id="backToMenuBtn" class="topbar__action" data-i18n-title="nav.modules" title="Retour à la liste des modules">
+        <i class="fa-solid fa-table-cells-large"></i>
+        <span class="topbar__action-label" data-i18n="nav.modules">Modules</span>
+      </button>
+      <button id="helpBtn" class="topbar__action" data-i18n-title="nav.help" title="Aide & glossaire">
         <i class="fa-solid fa-circle-question"></i>
-        <span class="topbar__action-label">Aide</span>
+        <span class="topbar__action-label" data-i18n="nav.help">Aide</span>
       </button>
       <button id="wallboardBtn" class="topbar__action" title="Mode wallboard">
         <i class="fa-solid fa-tv"></i>
-        <span class="topbar__action-label">Wallboard</span>
+        <span class="topbar__action-label" data-i18n="nav.wallboard">Wallboard</span>
       </button>
       <button id="savedBtn" class="topbar__action" title="Analyses sauvegardées">
         <i class="fa-solid fa-bookmark"></i>
-        <span class="topbar__action-label">Sauvegardes</span>
+        <span class="topbar__action-label" data-i18n="nav.saved">Sauvegardes</span>
       </button>
       <button id="alertsBtn" class="topbar__action" title="Alertes email">
         <i class="fa-solid fa-bell"></i>
-        <span class="topbar__action-label">Alertes</span>
+        <span class="topbar__action-label" data-i18n="nav.alerts">Alertes</span>
       </button>
-      <button id="darkModeBtn" class="topbar__action" title="Basculer le thème">
+      <button id="darkModeBtn" class="topbar__action" data-i18n-title="nav.theme" title="Basculer le thème">
         <i class="fa-solid fa-moon"></i>
       </button>
+      <button id="autoRefreshBtn" class="topbar__action" title="Rafraîchissement automatique (60 s)">
+        <i class="fa-solid fa-rotate"></i>
+        <span class="topbar__action-label" data-i18n="nav.auto">Auto</span>
+      </button>
+      <a href="account.html" class="topbar__action" data-i18n-title="nav.account" title="Mon compte">
+        <i class="fa-solid fa-user"></i>
+      </a>
 
       <!-- NOUVEAU : bouton de déconnexion -->
-      <button id="logoutBtn" class="topbar__action topbar__action--logout" title="Déconnexion — Retour à l'accueil">
+      <button id="logoutBtn" class="topbar__action topbar__action--logout" data-i18n-title="nav.logout" title="Déconnexion — Retour à l'accueil">
         <i class="fa-solid fa-right-from-bracket"></i>
-        <span class="topbar__action-label">Déconnexion</span>
+        <span class="topbar__action-label" data-i18n="nav.logout">Déconnexion</span>
       </button>
     </div>
 
@@ -85,6 +97,9 @@
       <div class="section-head__right">
         <button id="compareToggleBtn" class="pill pill--action" title="Comparer deux périodes">
           <i class="fa-solid fa-code-compare"></i> Comparer
+        </button>
+        <button id="compareCountriesBtn" class="pill pill--action" title="Comparer deux pays">
+          <i class="fa-solid fa-earth-africa"></i> Comparer pays
         </button>
         <button id="thresholdsBtn" class="pill pill--action" title="Seuils par site">
           <i class="fa-solid fa-gauge-high"></i> Seuils
@@ -257,6 +272,37 @@
       </div>
     </div>
 
+    <!-- BLOC COMPARAISON MULTI-PAYS (masqué par défaut) -->
+    <div id="compareCountriesBlock" class="compare-block hidden">
+      <header class="compare-block__head">
+        <div class="compare-block__head-left">
+          <i class="fa-solid fa-earth-africa"></i>
+          <div>
+            <h3>Comparaison multi-pays</h3>
+            <p>Comparez les mêmes sites et la même période entre deux pays autorisés.</p>
+          </div>
+        </div>
+        <button id="compareCountriesCloseBtn" class="compare-block__close"><i class="fa-solid fa-xmark"></i></button>
+      </header>
+      <div class="compare-block__body">
+        <div class="compare-block__col">
+          <span class="compare-block__label">Pays A</span>
+          <div class="compare-block__dates">
+            <select id="cmpCountryA" class="compare-block__select"></select>
+          </div>
+        </div>
+        <div class="compare-block__arrow"><i class="fa-solid fa-arrow-right-arrow-left"></i></div>
+        <div class="compare-block__col">
+          <span class="compare-block__label">Pays B</span>
+          <div class="compare-block__dates">
+            <select id="cmpCountryB" class="compare-block__select"></select>
+          </div>
+        </div>
+        <button id="compareCountriesRunBtn" class="btn btn--primary"><i class="fa-solid fa-bolt"></i> Comparer</button>
+      </div>
+      <p class="compare-block__hint">Période analysée : <span id="cmpCountriesRange">—</span></p>
+    </div>
+
     <!-- Boutons d'action centrés -->
     <div class="action-bar">
       <button id="analyzeBtn" class="btn btn--primary btn--lg">
@@ -316,6 +362,22 @@
       </header>
       <div class="compare-summary" id="compareSummaryKpi"></div>
       <div id="compareChart" class="chart" style="min-height:340px"></div>
+    </section>
+
+    <!-- PANNEAU COMPARAISON MULTI-PAYS (résultats) -->
+    <section id="compareCountriesPanel" class="panel panel--compare hidden">
+      <header class="panel__head">
+        <div class="panel__head-left">
+          <div class="panel__icon panel__icon--violet"><i class="fa-solid fa-earth-africa"></i></div>
+          <div>
+            <h2 class="panel__title">Comparaison multi-pays</h2>
+            <p class="panel__subtitle" id="compareCountriesSubtitle">—</p>
+          </div>
+        </div>
+        <button id="compareCountriesResultsClose" class="panel__close"><i class="fa-solid fa-xmark"></i></button>
+      </header>
+      <div class="compare-summary" id="compareCountriesKpi"></div>
+      <div id="compareCountriesChart" class="chart" style="min-height:340px"></div>
     </section>
 
     <!-- DEUX COLONNES : WORST + RÉSUMÉ -->
@@ -1037,5 +1099,6 @@
   })();
 </script>
 <script src="assets/js/dashboard.js"></script>
+<script src="assets/js/notify.js"></script>
 </body>
 </html>

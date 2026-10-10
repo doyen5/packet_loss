@@ -319,6 +319,20 @@ async function init(){
 
   if(isHomePage()){
     renderCountryGrid();
+    /* Bouton administration (visible si super admin via guard) sur l'accueil */
+    const adminHomeBtn = document.getElementById("adminHomeBtn");
+    if(adminHomeBtn){
+      adminHomeBtn.addEventListener("click", () => {
+        window.location.href = "admin.html";
+      });
+    }
+    /* Bouton déconnexion (accueil) */
+    const logoutHomeBtn = document.getElementById("logoutHomeBtn");
+    if(logoutHomeBtn){
+      logoutHomeBtn.addEventListener("click", () => {
+        if(window.PL && PL.logout) PL.logout();
+      });
+    }
   } else if(isMenuPage()){
     renderMenu();
     /* Bouton retour à l'accueil */

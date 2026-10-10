@@ -23,6 +23,14 @@ if ($email === '' || $password === '') {
 
 $result = Auth::attempt($email, $password);
 
+if (!empty($result['two_factor'])) {
+    Json::ok([
+        'two_factor' => true,
+        'message'    => 'Un code de vérification vous a été envoyé par email.',
+        'csrf'       => Csrf::token(),
+    ]);
+}
+
 if (!$result['success']) {
     $throttled = ($result['reason'] ?? '') === 'throttled';
     Json::error(

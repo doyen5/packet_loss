@@ -22,12 +22,23 @@
       </div>
       <div class="home-brand__name">
         <h1>Packet Loss <span>Intelligence</span></h1>
-        <p>Plateforme de supervision et d'analyse réseau</p>
+        <p data-i18n="brand.tagline">Plateforme de supervision et d'analyse réseau</p>
       </div>
     </div>
     <div class="home-topbar__actions">
-      <button id="darkModeBtn" class="home-action" title="Basculer le thème">
+      <button id="adminHomeBtn" class="home-action home-action--with-label hidden" data-admin-only data-i18n-title="nav.admin" title="Administration">
+        <i class="fa-solid fa-user-gear"></i>
+        <span data-i18n="nav.admin">Administration</span>
+      </button>
+      <button id="darkModeBtn" class="home-action" data-i18n-title="nav.theme" title="Basculer le thème">
         <i class="fa-solid fa-moon"></i>
+      </button>
+      <a href="account.html" class="home-action" data-i18n-title="nav.account" title="Mon compte">
+        <i class="fa-solid fa-user"></i>
+      </a>
+      <button id="logoutHomeBtn" class="home-action home-action--with-label" data-i18n-title="nav.logout" title="Déconnexion">
+        <i class="fa-solid fa-right-from-bracket"></i>
+        <span data-i18n="nav.logout">Déconnexion</span>
       </button>
     </div>
   </div>
@@ -39,12 +50,12 @@
 <section class="home-hero">
   <div class="home-hero__content">
     <span class="home-hero__eyebrow">
-      <i class="fa-solid fa-globe"></i> Sélection du pays
+      <i class="fa-solid fa-globe"></i> <span data-i18n="home.eyebrow">Sélection du pays</span>
     </span>
-    <h2 class="home-hero__title">
+    <h2 class="home-hero__title" data-i18n-html="home.title">
       Choisissez votre <span>pays</span>
     </h2>
-    <p class="home-hero__subtitle">
+    <p class="home-hero__subtitle" data-i18n="home.subtitle">
       Sélectionnez un pays pour accéder aux modules d'analyse réseau disponibles.
     </p>
   </div>
@@ -53,12 +64,12 @@
 <!-- ============================================================
      GRILLE DES PAYS
      ============================================================ -->
-<main class="home-container">
+<main class="home-container home-container--center">
   <div class="country-grid" id="countryGrid">
     <!-- Les pays sont injectés dynamiquement par home.js -->
     <div class="country-loading">
       <i class="fa-solid fa-spinner fa-spin"></i>
-      Chargement des pays...
+      <span data-i18n="home.loading">Chargement des pays...</span>
     </div>
   </div>
 </main>
@@ -69,10 +80,12 @@
 <footer class="home-footer">
   <p>
     <i class="fa-solid fa-circle-info"></i>
-    D'autres fonctionnalités seront ajoutés prochainement. Contactez l'administrateur pour en ajouter.
+    <span data-i18n="home.footer">D'autres fonctionnalités seront ajoutées prochainement. Contactez l'administrateur pour en ajouter.</span>
   </p>
 </footer>
 
+<script src="assets/js/i18n.js"></script>
 <script src="assets/js/home.js"></script>
+<script src="assets/js/notify.js"></script>
 </body>
 </html>

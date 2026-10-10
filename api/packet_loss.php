@@ -23,12 +23,22 @@ use Npm\Config;
 use Npm\Http\Json;
 use Npm\PacketLossAnalyzer;
 use Npm\Rbac;
+use Npm\Security\RateLimiter;
 
 require_once __DIR__ . '/bootstrap.php';
 
 /* Authentification + permission de consultation obligatoires. */
 Auth::requireLogin();
 Rbac::require(Auth::role(), 'packet_loss.view');
+
+/* Limitation de débit : 60 requêtes / minute / utilisateur. */
+try {
+    if (!RateLimiter::hit('packet_loss:user:' . (string) Auth::id(), 60, 1)) {
+        Json::error('Trop de requêtes. Réessayez dans une minute.', 429);
+    }
+} catch (\Throwable $e) {
+    // table rate_limits indisponible : on ne bloque pas l'analyse.
+}
 
 Json::requireMethod('POST');
 

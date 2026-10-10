@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="assets/css/font-awesome.min.css">
 <link rel="stylesheet" href="assets/css/admin.css">
 <script src="assets/js/guard.js"></script>
+<script src="assets/js/i18n.js"></script>
 </head>
 <body class="admin-page">
 
@@ -15,16 +16,16 @@
   <div class="admin-topbar__inner">
     <button id="backToMenuBtn" class="admin-action admin-action--with-label">
       <i class="fa-solid fa-arrow-left"></i>
-      <span>Retour</span>
+      <span data-i18n="admin.back">Retour</span>
     </button>
     <div class="admin-brand">
       <img src="assets/images/logo1.png" alt="NPM" class="admin-brand__logo">
       <div class="admin-brand__name">
-        <h1>Administration</h1>
+        <h1 data-i18n="admin.title">Administration</h1>
         <p id="adminUserLabel">Chargement...</p>
       </div>
     </div>
-    <button id="adminLogoutBtn" class="admin-action admin-action--logout" title="Déconnexion">
+    <button id="adminLogoutBtn" class="admin-action admin-action--logout" data-i18n-title="nav.logout" title="Déconnexion">
       <i class="fa-solid fa-right-from-bracket"></i>
     </button>
   </div>
@@ -34,65 +35,317 @@
 
   <div id="adminPanel" class="admin-panel hidden">
 
-    <!-- ============ NOUVEL UTILISATEUR ============ -->
-    <section class="admin-card">
-      <header class="admin-card__head">
-        <i class="fa-solid fa-user-plus"></i>
-        <div><h2>Nouvel utilisateur</h2><p>Créez un compte et attribuez rôle + pays.</p></div>
-      </header>
-      <form id="createUserForm" class="admin-form">
-        <div class="admin-field">
-          <label for="nuEmail" class="admin-field__label">Email</label>
-          <input id="nuEmail" type="email" class="admin-input" required autocomplete="off">
-        </div>
-        <div class="admin-field">
-          <label for="nuName" class="admin-field__label">Nom complet</label>
-          <input id="nuName" type="text" class="admin-input" required autocomplete="off">
-        </div>
-        <div class="admin-field">
-          <label for="nuPassword" class="admin-field__label">Mot de passe (8+ caractères)</label>
-          <input id="nuPassword" type="password" class="admin-input" required autocomplete="new-password">
-        </div>
-        <div class="admin-field">
-          <label for="nuRole" class="admin-field__label">Rôle</label>
-          <select id="nuRole" class="admin-input"></select>
-        </div>
-        <div class="admin-field admin-field--countries">
-          <span class="admin-field__label">Pays accessibles</span>
-          <div id="nuCountries" class="admin-checks"></div>
-        </div>
-        <div class="admin-field admin-field--actions">
-          <button type="submit" class="admin-btn admin-btn--primary">
-            <i class="fa-solid fa-floppy-disk"></i> Créer
-          </button>
-        </div>
-      </form>
+    <nav class="admin-tabs" role="tablist">
+      <button class="admin-tab is-active" data-tab="overview"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="admin.tab.overview">Vue d'ensemble</span></button>
+      <button class="admin-tab" data-tab="automations"><i class="fa-solid fa-bell"></i> <span data-i18n="admin.tab.automations">Automatisations</span></button>
+      <button class="admin-tab" data-tab="logs"><i class="fa-solid fa-clipboard-list"></i> <span data-i18n="admin.tab.logs">Journaux</span></button>
+      <button class="admin-tab" data-tab="security"><i class="fa-solid fa-user-shield"></i> <span data-i18n="admin.tab.security">Sécurité</span></button>
+      <button class="admin-tab" data-tab="users"><i class="fa-solid fa-users-gear"></i> <span data-i18n="admin.tab.users">Utilisateurs</span></button>
+      <button class="admin-tab" data-tab="roles"><i class="fa-solid fa-user-tag"></i> <span data-i18n="admin.tab.roles">Rôles</span></button>
+      <button class="admin-tab" data-tab="reports"><i class="fa-solid fa-file-lines"></i> <span data-i18n="admin.tab.reports">Rapports</span></button>
+    </nav>
+
+    <!-- ============ VUE D'ENSEMBLE ============ -->
+    <section id="tab-overview" class="admin-tabpanel">
+      <div id="ovKpis" class="admin-kpis"></div>
+
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-heart-pulse"></i>
+          <div><h2>Santé de la plateforme</h2><p>Connectivité des bases et configuration.</p></div>
+        </header>
+        <div id="healthBody" class="admin-table-wrap"></div>
+      </section>
+
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-chart-line"></i>
+          <div><h2>Connexions (30 jours)</h2><p>Réussites et échecs par jour.</p></div>
+        </header>
+        <div id="chartLogins" class="admin-chart"></div>
+      </section>
+
+      <div class="admin-grid-2">
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-list-check"></i><div><h2>Activité d'audit</h2><p>Actions enregistrées par jour.</p></div></header>
+          <div id="chartAudit" class="admin-chart"></div>
+        </section>
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-triangle-exclamation"></i><div><h2>Incidents démarrés</h2><p>Nouveaux incidents par jour.</p></div></header>
+          <div id="chartIncidents" class="admin-chart"></div>
+        </section>
+      </div>
+
+      <div class="admin-grid-2">
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-user-tag"></i><div><h2>Répartition des rôles</h2><p>Comptes par rôle.</p></div></header>
+          <div id="chartRoles" class="admin-chart"></div>
+        </section>
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-globe"></i><div><h2>Incidents par pays</h2><p>Tous statuts confondus.</p></div></header>
+          <div id="chartIncCountry" class="admin-chart"></div>
+        </section>
+      </div>
+
+      <div class="admin-grid-2">
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-tower-broadcast"></i><div><h2>Sites les plus impactés</h2><p>Incidents ouverts.</p></div></header>
+          <div id="ovTopSites" class="admin-table-wrap"></div>
+        </section>
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-clock-rotate-left"></i><div><h2>Actions les plus fréquentes</h2><p>Top des actions du journal.</p></div></header>
+          <div id="ovTopActions" class="admin-table-wrap"></div>
+        </section>
+      </div>
     </section>
 
-    <!-- ============ LISTE DES UTILISATEURS ============ -->
-    <section class="admin-card admin-card--users">
-      <header class="admin-card__head">
-        <i class="fa-solid fa-users"></i>
-        <div><h2>Utilisateurs</h2><p id="usersCount"></p></div>
-      </header>
-      <div id="usersLoading" class="admin-message">
-        <i class="fa-solid fa-spinner fa-spin"></i> Chargement...
+    <!-- ============ AUTOMATISATIONS ============ -->
+    <section id="tab-automations" class="admin-tabpanel hidden">
+      <div id="autoKpis" class="admin-kpis"></div>
+
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-bell"></i>
+          <div><h2>Configurations d'alerte</h2><p id="autoSettingsCount"></p></div>
+        </header>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Pays</th>
+                <th>Destinataire</th>
+                <th>Fréquence</th>
+                <th>Seuil</th>
+                <th>Sites</th>
+                <th>État</th>
+                <th>Dernier passage</th>
+                <th>Dernier envoi</th>
+              </tr>
+            </thead>
+            <tbody id="autoSettingsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-scale-balanced"></i>
+          <div><h2>Règles fines</h2><p id="autoRulesCount"></p></div>
+        </header>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Pays</th>
+                <th>Nom</th>
+                <th>Site</th>
+                <th>Condition</th>
+                <th>Canaux</th>
+                <th>État</th>
+                <th>Dernier déclenchement</th>
+              </tr>
+            </thead>
+            <tbody id="autoRulesBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============ JOURNAUX ============ -->
+    <section id="tab-logs" class="admin-tabpanel hidden">
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-clipboard-list"></i>
+          <div><h2>Journaux d'audit</h2><p id="logsCount"></p></div>
+        </header>
+
+        <form id="logFilters" class="admin-form">
+          <div class="admin-field">
+            <label for="logAction" class="admin-field__label">Action</label>
+            <select id="logAction" class="admin-input"><option value="">Toutes</option></select>
+          </div>
+          <div class="admin-field">
+            <label for="logFrom" class="admin-field__label">Du</label>
+            <input id="logFrom" type="date" class="admin-input">
+          </div>
+          <div class="admin-field">
+            <label for="logTo" class="admin-field__label">Au</label>
+            <input id="logTo" type="date" class="admin-input">
+          </div>
+          <div class="admin-field">
+            <label for="logQ" class="admin-field__label">Recherche</label>
+            <input id="logQ" type="text" class="admin-input" placeholder="action, entité, détails...">
+          </div>
+          <div class="admin-field admin-field--actions">
+            <button type="submit" class="admin-btn admin-btn--primary"><i class="fa-solid fa-magnifying-glass"></i> Filtrer</button>
+            <button type="button" id="logsExportBtn" class="admin-btn admin-btn--sm"><i class="fa-solid fa-file-export"></i> Export CSV</button>
+            <button type="button" id="logsExcelBtn" class="admin-btn admin-btn--sm"><i class="fa-solid fa-file-excel"></i> Excel</button>
+          </div>
+        </form>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Entité</th><th>IP</th><th>Détails</th></tr>
+            </thead>
+            <tbody id="logsBody"></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button id="logsPrev" class="admin-btn admin-btn--sm">Précédent</button>
+          <span id="logsPageInfo" class="admin-muted"></span>
+          <button id="logsNext" class="admin-btn admin-btn--sm">Suivant</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============ SÉCURITÉ ============ -->
+    <section id="tab-security" class="admin-tabpanel hidden">
+      <div id="secKpis" class="admin-kpis"></div>
+
+      <section class="admin-card">
+        <header class="admin-card__head"><i class="fa-solid fa-chart-column"></i><div><h2>Connexions (14 jours)</h2><p>Tentatives réussies et échouées.</p></div></header>
+        <div id="chartSec" class="admin-chart"></div>
+      </section>
+
+      <div class="admin-grid-2">
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-envelope"></i><div><h2>Échecs par email</h2><p>30 derniers jours.</p></div></header>
+          <div id="secFailEmail" class="admin-table-wrap"></div>
+        </section>
+        <section class="admin-card">
+          <header class="admin-card__head"><i class="fa-solid fa-network-wired"></i><div><h2>Échecs par IP</h2><p>30 derniers jours.</p></div></header>
+          <div id="secFailIp" class="admin-table-wrap"></div>
+        </section>
       </div>
-      <div id="usersError" class="admin-message admin-message--error hidden"></div>
-      <div class="admin-table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Utilisateur</th>
-              <th>Rôle</th>
-              <th>Pays</th>
-              <th>Dernière connexion</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="usersTableBody"></tbody>
-        </table>
-      </div>
+
+      <section class="admin-card">
+        <header class="admin-card__head"><i class="fa-solid fa-clock-rotate-left"></i><div><h2>Tentatives récentes</h2><p>50 dernières.</p></div></header>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>Date</th><th>Email</th><th>IP</th><th>Résultat</th></tr></thead>
+            <tbody id="secRecentBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============ UTILISATEURS ============ -->
+    <section id="tab-users" class="admin-tabpanel hidden">
+
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-user-plus"></i>
+          <div><h2>Nouvel utilisateur</h2><p>Créez un compte et attribuez rôle + pays.</p></div>
+        </header>
+        <form id="createUserForm" class="admin-form">
+          <div class="admin-field">
+            <label for="nuEmail" class="admin-field__label">Email</label>
+            <input id="nuEmail" type="email" class="admin-input" required autocomplete="off">
+          </div>
+          <div class="admin-field">
+            <label for="nuName" class="admin-field__label">Nom complet</label>
+            <input id="nuName" type="text" class="admin-input" required autocomplete="off">
+          </div>
+          <div class="admin-field">
+            <label for="nuPassword" class="admin-field__label">Mot de passe (8+ caractères)</label>
+            <input id="nuPassword" type="password" class="admin-input" required autocomplete="new-password">
+          </div>
+          <div class="admin-field">
+            <label for="nuRole" class="admin-field__label">Rôle</label>
+            <select id="nuRole" class="admin-input"></select>
+          </div>
+          <div class="admin-field admin-field--countries">
+            <span class="admin-field__label">Pays accessibles</span>
+            <div id="nuCountries" class="admin-checks"></div>
+          </div>
+          <div class="admin-field admin-field--actions">
+            <button type="submit" class="admin-btn admin-btn--primary">
+              <i class="fa-solid fa-floppy-disk"></i> Créer
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-card admin-card--users">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-users"></i>
+          <div><h2>Utilisateurs</h2><p id="usersCount"></p></div>
+        </header>
+        <div id="usersLoading" class="admin-message">
+          <i class="fa-solid fa-spinner fa-spin"></i> Chargement...
+        </div>
+        <div id="usersError" class="admin-message admin-message--error hidden"></div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Rôle</th>
+                <th>Pays</th>
+                <th>Dernière connexion</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ============ RÔLES ============ -->
+    <section id="tab-roles" class="admin-tabpanel hidden">
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-user-tag"></i>
+          <div><h2>Permissions par rôle</h2><p id="rolesHint">Cochez les permissions puis enregistrez.</p></div>
+        </header>
+        <div id="rolesBody" class="admin-roles"></div>
+      </section>
+    </section>
+
+    <!-- ============ RAPPORTS ============ -->
+    <section id="tab-reports" class="admin-tabpanel hidden">
+      <section class="admin-card">
+        <header class="admin-card__head">
+          <i class="fa-solid fa-file-lines"></i>
+          <div><h2>Rapports planifiés</h2><p id="reportsCount"></p></div>
+        </header>
+        <form id="createReportForm" class="admin-form">
+          <div class="admin-field">
+            <label for="rpCountry" class="admin-field__label">Pays</label>
+            <select id="rpCountry" class="admin-input"></select>
+          </div>
+          <div class="admin-field">
+            <label for="rpUser" class="admin-field__label">Compte</label>
+            <select id="rpUser" class="admin-input"></select>
+          </div>
+          <div class="admin-field">
+            <label for="rpFreq" class="admin-field__label">Fréquence</label>
+            <select id="rpFreq" class="admin-input">
+              <option value="daily">Quotidien</option>
+              <option value="weekly" selected>Hebdomadaire</option>
+              <option value="monthly">Mensuel</option>
+            </select>
+          </div>
+          <div class="admin-field">
+            <label for="rpRecipients" class="admin-field__label">Destinataires</label>
+            <input id="rpRecipients" type="text" class="admin-input" placeholder="a@x.com, b@y.com">
+          </div>
+          <div class="admin-field admin-field--actions">
+            <button type="submit" class="admin-btn admin-btn--primary"><i class="fa-solid fa-plus"></i> Planifier</button>
+          </div>
+        </form>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>Pays</th><th>Compte</th><th>Fréquence</th><th>Destinataires</th><th>État</th><th>Dernier envoi</th><th></th></tr></thead>
+            <tbody id="reportsBody"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
   </div>
@@ -106,6 +359,8 @@
 
 </main>
 
+<script src="assets/js/plotly.min.js"></script>
+<script src="assets/js/xlsx.full.min.js"></script>
 <script src="assets/js/admin.js"></script>
 </body>
 </html>

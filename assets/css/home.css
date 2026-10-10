@@ -94,6 +94,8 @@ body.home-page{
 }
 button{cursor:pointer;border:0;background:none;padding:0;font:inherit;color:inherit}
 a{color:var(--c-primary);text-decoration:none}
+/* Utilitaire : masquage (utilisé par guard.js pour [data-admin-only]) */
+.hidden{display:none !important}
 
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -218,19 +220,24 @@ a{color:var(--c-primary);text-decoration:none}
   display:flex;
   flex-direction:column;
 }
+/* Centrage vertical de la grille des pays (accueil) */
+.home-container--center{justify-content:center;}
 
 /* =========================================================
    6. GRILLE DES PAYS — 5 colonnes sur desktop
    ========================================================= */
 .country-grid{
-  display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
-  gap:14px;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  align-items:stretch;
+  gap:16px;
   margin-bottom:28px;
+  width:100%;
 }
 
 .country-loading{
-  grid-column:1 / -1;
+  flex:1 1 100%;
   text-align:center;padding:60px 20px;
   color:var(--c-text-muted);font-size:14px;
   display:flex;flex-direction:column;align-items:center;gap:12px;
@@ -240,6 +247,9 @@ a{color:var(--c-primary);text-decoration:none}
 /* Carte pays compacte — tient 5 sur une ligne */
 .country-card{
   position:relative;
+  flex:0 1 220px;
+  width:220px;
+  max-width:100%;
   background:var(--c-surface);
   border:1px solid var(--c-border);
   border-radius:14px;
@@ -509,14 +519,8 @@ a{color:var(--c-primary);text-decoration:none}
    9. RESPONSIVE
    ========================================================= */
 
-/* Tablette large : 3 colonnes */
-@media(max-width:1200px){
-  .country-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
-}
-
 /* Tablette : 2 colonnes */
 @media(max-width:800px){
-  .country-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .home-hero{padding:36px 20px 20px;}
   .home-hero__title{font-size:28px;}
   .home-container{padding:12px 20px 24px;}
@@ -532,7 +536,7 @@ a{color:var(--c-primary);text-decoration:none}
 
 /* Mobile : 1 colonne */
 @media(max-width:500px){
-  .country-grid{grid-template-columns:1fr;gap:12px;}
+  .country-grid{gap:12px;}
   .home-hero__title{font-size:24px;}
   .home-hero__title span{display:block;}
   .country-card{min-height:auto;}

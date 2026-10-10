@@ -14,6 +14,8 @@ use Npm\Database;
 use Npm\Http\Csrf;
 use Npm\Http\Json;
 use Npm\Rbac;
+use Npm\Repositories\NotificationRepository;
+use Npm\Repositories\UserRepository;
 
 require_once __DIR__ . '/bootstrap.php';
 
@@ -35,6 +37,31 @@ foreach (Config::get('countries', []) as $c) {
 }
 
 if ($method === 'GET') {
+    $singleId = (int) ($_GET['id'] ?? 0);
+    if ($singleId > 0) {
+        $stmt = $pdo->prepare('SELECT * FROM incidents WHERE id = ?');
+        $stmt->execute([$singleId]);
+        $incident = $stmt->fetch();
+        if (!$incident) {
+            Json::error('Incident introuvable.', 404);
+        }
+        if (!Auth::superAdmin() && !in_array((string) $incident['country_code'], $allowed, true)) {
+            Json::error('Accès refusé : pays non autorisé pour votre compte.', 403);
+        }
+        $incident['details'] = $incident['details'] !== null
+            ? (json_decode((string) $incident['details'], true) ?: null)
+            : null;
+
+        $cs = $pdo->prepare(
+            'SELECT c.id, c.user_id, c.body, c.created_at, u.full_name
+             FROM incident_comments c LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.incident_id = ? ORDER BY c.created_at ASC'
+        );
+        $cs->execute([$singleId]);
+
+        Json::ok(['incident' => $incident, 'comments' => $cs->fetchAll()]);
+    }
+
     $country = strtoupper(trim((string) ($_GET['country'] ?? '')));
 
     if ($country !== '') {
@@ -151,6 +178,81 @@ if ($action === 'acknowledge' || $action === 'resolve') {
     Audit::log($userId, 'incident.' . $action, 'incidents', (string) $id);
 
     Json::ok(['id' => $id, 'status' => $action === 'resolve' ? 'resolved' : 'acknowledged']);
+}
+
+if ($action === 'assign') {
+    $id = (int) ($input['id'] ?? 0);
+    $assignee = (int) ($input['assigned_to'] ?? 0);
+    if ($id <= 0) {
+        Json::error('Identifiant requis.', 400);
+    }
+
+    $check = $pdo->prepare('SELECT id, country_code, site FROM incidents WHERE id = ?');
+    $check->execute([$id]);
+    $incident = $check->fetch();
+    if (!$incident) {
+        Json::error('Incident introuvable.', 404);
+    }
+    if (!Auth::superAdmin() && !in_array((string) $incident['country_code'], $allowed, true)) {
+        Json::error('Accès refusé : pays non autorisé pour votre compte.', 403);
+    }
+    if ($assignee > 0) {
+        $u = $pdo->prepare('SELECT id FROM users WHERE id = ? AND is_active = 1');
+        $u->execute([$assignee]);
+        if (!$u->fetchColumn()) {
+            Json::error('Utilisateur assigné introuvable.', 404);
+        }
+    }
+
+    $pdo->prepare('UPDATE incidents SET assigned_to = ? WHERE id = ?')
+        ->execute([$assignee > 0 ? $assignee : null, $id]);
+
+    if ($assignee > 0) {
+        NotificationRepository::create(
+            $assignee,
+            'Incident assigné',
+            sprintf('Un incident vous a été assigné : %s (%s).', (string) $incident['site'], (string) $incident['country_code']),
+            'incident',
+            'packet_loss.html'
+        );
+    }
+
+    Audit::log($userId, 'incident.assign', 'incidents', (string) $id, ['assigned_to' => $assignee]);
+    Json::ok(['id' => $id, 'assigned_to' => $assignee > 0 ? $assignee : null]);
+}
+
+if ($action === 'comment') {
+    $id = (int) ($input['id'] ?? 0);
+    $body = trim((string) ($input['comment'] ?? ''));
+    if ($id <= 0 || $body === '') {
+        Json::error('Identifiant et commentaire requis.', 422);
+    }
+
+    $check = $pdo->prepare('SELECT id, country_code, site, assigned_to FROM incidents WHERE id = ?');
+    $check->execute([$id]);
+    $incident = $check->fetch();
+    if (!$incident) {
+        Json::error('Incident introuvable.', 404);
+    }
+    if (!Auth::superAdmin() && !in_array((string) $incident['country_code'], $allowed, true)) {
+        Json::error('Accès refusé : pays non autorisé pour votre compte.', 403);
+    }
+
+    $pdo->prepare('INSERT INTO incident_comments (incident_id, user_id, body) VALUES (?, ?, ?)')
+        ->execute([$id, $userId, mb_substr($body, 0, 2000)]);
+
+    if (!empty($incident['assigned_to']) && (int) $incident['assigned_to'] !== $userId) {
+        NotificationRepository::create(
+            (int) $incident['assigned_to'],
+            'Nouveau commentaire',
+            sprintf('Nouveau commentaire sur l\'incident %s.', (string) $incident['site']),
+            'info',
+            'packet_loss.html'
+        );
+    }
+
+    Audit::log($userId, 'incident.comment', 'incidents', (string) $id);
+    Json::ok(['id' => $id]);
 }
 
 Json::error('Action inconnue.', 422);

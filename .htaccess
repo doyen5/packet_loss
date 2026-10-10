@@ -1,0 +1,40 @@
+# =========================================================
+#  Packet Loss Intelligence — Durcissement Apache
+#  Empêche l'accès direct aux fichiers/dossiers sensibles.
+# =========================================================
+
+# Pas de listing de répertoire
+Options -Indexes
+
+# Fichiers sensibles (noms fixes ou extensions à risque)
+<FilesMatch "^(\.env(\..*)?|\.git.*|composer\.(json|lock)|AGENTS\.md|README\.md|phpunit\.xml.*|.*\.(log|sql|md|ini|sh|bat|bak|old|orig|dist|lock))$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Dossiers internes + tout segment commençant par un point (.env, .git, .svn...)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Tout segment caché (sauf .well-known) : refus
+    RewriteRule "(^|/)\.(?!well-known/)" - [F,L]
+
+    # Dossiers internes jamais servis directement
+    RewriteRule ^(logs|sql|src|vendor|docs|storage|tests|scripts)/ - [F,L]
+</IfModule>
+
+# En-têtes de sécurité (HTML + API)
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "same-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+    # HSTS : à décommenter UNIQUEMENT lorsque l'application est servie en HTTPS.
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>

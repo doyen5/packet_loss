@@ -102,6 +102,15 @@ body.auth-page {
 
 .auth-form__submit i { margin-right: 8px; }
 
+.auth-form__submit--ghost {
+  margin-top: 8px;
+  color: var(--auth-muted);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.auth-form__submit--ghost:hover { color: #fff; filter: none; background: rgba(255, 255, 255, 0.06); }
+
 .auth-error {
   padding: 10px 12px;
   font-size: 13px;

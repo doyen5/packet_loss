@@ -4,12 +4,18 @@ declare(strict_types=1);
 /**
  * Changement de mot de passe : POST { current_password, new_password }
  * Authentification + protection CSRF requises.
+ *
+ * Le changement invalide toutes les autres sessions de l'utilisateur
+ * (session_version + révocation des jetons) tout en gardant la session
+ * courante active.
  */
 
 use Npm\Auth;
 use Npm\Http\Csrf;
 use Npm\Http\Json;
+use Npm\Repositories\SessionRepository;
 use Npm\Repositories\UserRepository;
+use Npm\Security\PasswordPolicy;
 
 require __DIR__ . '/../bootstrap.php';
 
@@ -21,11 +27,13 @@ $input = Json::input();
 $current = (string) ($input['current_password'] ?? '');
 $new = (string) ($input['new_password'] ?? '');
 
-if (mb_strlen($new) < 8) {
-    Json::error('Le nouveau mot de passe doit contenir au moins 8 caractères.', 422);
+$policyError = PasswordPolicy::validate($new);
+if ($policyError !== null) {
+    Json::error($policyError, 422);
 }
 
-$user = UserRepository::findById((int) Auth::id());
+$userId = (int) Auth::id();
+$user = UserRepository::findById($userId);
 if ($user === null) {
     Json::error('Utilisateur introuvable.', 404);
 }
@@ -38,6 +46,11 @@ if (password_verify($new, (string) $user['password_hash'])) {
     Json::error('Le nouveau mot de passe doit être différent de l\'actuel.', 422);
 }
 
-UserRepository::updatePassword((int) $user['id'], password_hash($new, PASSWORD_DEFAULT));
+UserRepository::updatePassword($userId, password_hash($new, PASSWORD_DEFAULT));
 
-Json::ok(['message' => 'Mot de passe modifié.']);
+// Invalidation globale puis ré-établissement de la session courante.
+UserRepository::bumpSessionVersion($userId);
+SessionRepository::revokeAllForUser($userId);
+Auth::refreshSession();
+
+Json::ok(['message' => 'Mot de passe modifié. Les autres sessions ont été déconnectées.']);

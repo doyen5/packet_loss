@@ -120,11 +120,13 @@ let pendingAnnotation  = null;
 /* État comparaison */
 let compareMode    = false;
 let compareResult  = null;
+let compareCountriesResult = null;
 
 /* État onglets avancés */
 let correlationMatrix = null;
 let correlationSites  = [];
 let activeTab         = "reliability";
+let autoRefreshTimer  = null;
 
 /* État HUB auto */
 let autoHubMode = true;
@@ -881,6 +883,28 @@ async function runAnalysis(){
   }finally{
     if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Analyser'; }
   }
+}
+
+/* Rafraîchissement automatique de la dernière analyse. */
+function setAutoRefresh(enabled){
+  if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  const btn = $("autoRefreshBtn");
+  if(btn) btn.classList.toggle("is-active", !!enabled);
+  if(enabled){
+    autoRefreshTimer = setInterval(() => {
+      if(lastResult && !document.hidden) runAnalysis();
+    }, 60000);
+    showMessage("Rafraîchissement automatique activé (60 s).");
+  }
+}
+function bindAutoRefresh(){
+  const btn = $("autoRefreshBtn");
+  if(!btn) return;
+  btn.addEventListener("click", () => {
+    const enabling = !autoRefreshTimer;
+    setAutoRefresh(enabling);
+    if(!enabling) showMessage("Rafraîchissement automatique désactivé.");
+  });
 }
 
 /* =========================================================
@@ -1952,6 +1976,12 @@ function renderSiteGrid(siteStats, rows){
       card.appendChild(safe);
     } else card.innerHTML = cardMarkup;
     grid.appendChild(card);
+    const head = card.querySelector(".site-card-head");
+    if(head){
+      head.style.cursor = "pointer";
+      head.title = "Localiser ce site sur la carte";
+      head.addEventListener("click", () => locateSiteOnMap(name));
+    }
     renderSiteChart(safeId, siteRows, name);
   });
   applySiteFilters();
@@ -2086,7 +2116,7 @@ function addChartMarkers(chartId, rows, site){
     const icons = { incident:"⚠️", maintenance:"🔧", info:"ℹ️", resolved:"✓" };
     return {
       x: makeDateTime(sorted[idx]), y: Number(sorted[idx].packet_loss),
-      text: `${icons[a.type] || "ℹ️"} ${a.text.substring(0, 30)}`,
+      text: `${icons[a.type] || "ℹ️"} ${escapeHtml(a.text.substring(0, 30))}`,
       showarrow:true, arrowhead:3, arrowcolor:"#8b5cf6",
       ax:0, ay:-50, font:{ size:9, color:"#6d28d9" },
       bgcolor:"rgba(245,243,255,.95)", bordercolor:"#ddd6fe", borderpad:3
@@ -2834,6 +2864,160 @@ function bindCompare(){
     const p = $("compareResultsPanel");
     if(p) p.classList.add("hidden");
   });
+  safeOn("compareCountriesBtn", "click", () => toggleCountriesCompareBlock());
+  safeOn("compareCountriesCloseBtn", "click", () => toggleCountriesCompareBlock(false));
+  safeOn("compareCountriesRunBtn", "click", runCountryComparison);
+  safeOn("compareCountriesResultsClose", "click", () => {
+    const p = $("compareCountriesPanel");
+    if(p) p.classList.add("hidden");
+  });
+}
+
+/* =========================================================
+   COMPARAISON MULTI-PAYS
+   ---------------------------------------------------------
+   Compare les mêmes sites / la même période entre deux pays
+   autorisés pour le compte connecté.
+   ========================================================= */
+function toggleCountriesCompareBlock(force){
+  const block = $("compareCountriesBlock");
+  if(!block) return;
+  const show = force !== undefined ? force : block.classList.contains("hidden");
+  block.classList.toggle("hidden", !show);
+  if(show){
+    populateCountrySelectors();
+    const cur = $("cmpCountriesRange");
+    if(cur) cur.textContent = `${formatDateFR($("startDate")?.value)} → ${formatDateFR($("endDate")?.value)}`;
+  }
+}
+
+async function loadAllowedCountries(){
+  if(window.__plAllowedCountries) return window.__plAllowedCountries;
+  let list = [];
+  try{
+    const r = await fetch("api/countries.php", { cache:"no-store" });
+    if(r.ok){
+      const d = await r.json();
+      if(d.success && Array.isArray(d.countries)){
+        list = d.countries
+          .filter(c => c.packet_loss_available !== false)
+          .map(c => ({ code:c.code, name:c.name, flag:c.flag }));
+      }
+    }
+  }catch(_){}
+  if(!list.length){
+    list = Object.values(COUNTRY_MAP).map(c => ({ code:c.code, name:c.name, flag:c.flag }));
+  }
+  window.__plAllowedCountries = list;
+  return list;
+}
+
+async function populateCountrySelectors(){
+  const selA = $("cmpCountryA"), selB = $("cmpCountryB");
+  if(!selA || !selB || selA.dataset.loaded === "1") return;
+  const list = await loadAllowedCountries();
+  const opts = list.map(c => `<option value="${c.code}">${c.flag} ${c.name}</option>`).join("");
+  selA.innerHTML = opts;
+  selB.innerHTML = opts;
+  selA.value = COUNTRY_MAP[activeCountry] ? activeCountry : (list[0]?.code || "");
+  const other = list.find(c => c.code !== selA.value);
+  selB.value = other ? other.code : selA.value;
+  selA.dataset.loaded = "1";
+  selB.dataset.loaded = "1";
+}
+
+async function runCountryComparison(){
+  const sites  = parseSitesText($("sitesPaste")?.value || "");
+  const vendor = $("vendor")?.value || "ALL";
+  const start  = $("startDate")?.value || "";
+  const end    = $("endDate")?.value || "";
+  const codeA  = $("cmpCountryA")?.value || activeCountry;
+  const codeB  = $("cmpCountryB")?.value || activeCountry;
+
+  if(!sites.length)   return showMessage("Aucun site à comparer.");
+  if(!start || !end)  return showMessage("Veuillez renseigner les dates.");
+  if(codeA === codeB) return showMessage("Sélectionnez deux pays différents.");
+
+  const btn = $("compareCountriesRunBtn");
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Comparaison...'; }
+  try{
+    const [resA, resB] = await Promise.all([
+      fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ sites, vendor, start_date:start, end_date:end, country: codeA }) }).then(r => r.json()),
+      fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ sites, vendor, start_date:start, end_date:end, country: codeB }) }).then(r => r.json())
+    ]);
+    if(!resA.success) throw new Error(`${COUNTRY_MAP[codeA]?.name || codeA} : ${resA.message || "erreur"}`);
+    if(!resB.success) throw new Error(`${COUNTRY_MAP[codeB]?.name || codeB} : ${resB.message || "erreur"}`);
+    compareCountriesResult = { A:{ code:codeA, data:resA }, B:{ code:codeB, data:resB }, start, end };
+    renderCountryComparisonResults();
+    showMessage("Comparaison multi-pays terminée.");
+  }catch(e){
+    console.error(e);
+    showMessage("Échec : " + e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Comparer'; }
+  }
+}
+
+function renderCountryComparisonResults(){
+  const panel = $("compareCountriesPanel");
+  if(!panel || !compareCountriesResult) return;
+  panel.classList.remove("hidden");
+
+  const { A, B, start, end } = compareCountriesResult;
+  const infoA = COUNTRY_MAP[A.code] || { flag:"", name:A.code };
+  const infoB = COUNTRY_MAP[B.code] || { flag:"", name:B.code };
+  const sub = $("compareCountriesSubtitle");
+  if(sub){
+    sub.textContent = `${formatDateFR(start)} → ${formatDateFR(end)}  •  ${infoA.flag} ${infoA.name} vs ${infoB.flag} ${infoB.name}`;
+  }
+
+  const rowsA = A.data.rows || [];
+  const rowsB = B.data.rows || [];
+  const kpiBox = $("compareCountriesKpi");
+  if(kpiBox){
+    kpiBox.innerHTML = [
+      { code:A.code, rows:rowsA },
+      { code:B.code, rows:rowsB }
+    ].map(c => {
+      const info = COUNTRY_MAP[c.code] || { flag:"", name:c.code };
+      const avg = computeGlobalAvg(c.rows);
+      return `
+        <div class="compare-kpi">
+          <div class="compare-kpi__label">${info.flag} ${info.name}</div>
+          <div class="compare-kpi__value">${formatNumber(avg)}%</div>
+          <span class="compare-kpi__delta compare-kpi__delta--neutral">
+            Pic ${formatNumber(computeGlobalMax(c.rows))}% • ${countImpacted(c.rows)} site(s) • ${c.rows.length} mesure(s)
+          </span>
+        </div>`;
+    }).join("");
+  }
+
+  const seriesA = aggregateByHour(rowsA);
+  const seriesB = aggregateByHour(rowsB);
+  Plotly.newPlot("compareCountriesChart", [
+    {
+      x: seriesA.map(p => p.label), y: seriesA.map(p => p.avg),
+      type:"scatter", mode:"lines+markers", name:`${infoA.flag} ${infoA.name}`,
+      line:{ color:"#4f46e5", width:2.2, shape:"spline", smoothing:0.5 },
+      marker:{ color:"#4f46e5", size:5 }
+    },
+    {
+      x: seriesB.map(p => p.label), y: seriesB.map(p => p.avg),
+      type:"scatter", mode:"lines+markers", name:`${infoB.flag} ${infoB.name}`,
+      line:{ color:"#f97316", width:2.2, shape:"spline", smoothing:0.5 },
+      marker:{ color:"#f97316", size:5 }
+    }
+  ], {
+    margin:{ l:55, r:20, t:20, b:60 },
+    paper_bgcolor: getChartBg(), plot_bgcolor: getChartBg(),
+    font:{ family:"Inter, Segoe UI, Arial", size:11, color: getChartTextColor() },
+    hovermode:"x unified",
+    legend:{ orientation:"h", y:-0.15, x:0, font:{ size:11 } },
+    xaxis:{ title:"Heure de la journée", gridcolor: getChartGridColor(), linecolor: getChartLineColor(), color: getChartTextColor() },
+    yaxis:{ title:"Packet Loss moyen (%)", rangemode:"tozero", gridcolor: getChartGridColor(), linecolor: getChartLineColor(), color: getChartTextColor() }
+  }, { responsive:true, displaylogo:false });
 }
 
 /* =========================================================
@@ -3339,6 +3523,7 @@ safeOn("resetBtn", "click", () => {
   lastResult = null; lastFilteredRows = []; lastSiteStats = [];
   siteTrends = {};
   const crp = $("compareResultsPanel"); if(crp) crp.classList.add("hidden");
+  const ccp = $("compareCountriesPanel"); if(ccp) ccp.classList.add("hidden");
   correlationMatrix = null;
   correlationSites = [];
   autoHubData = null;
@@ -3410,6 +3595,7 @@ function init(){
   bindAutoHubBtn();
   bindViewSwitcher();
   bindHeatmapToggle();
+  bindAutoRefresh();
   bindBaseLayerButtons();
   safeOn("tryExampleBtn", "click", tryExample);
 
